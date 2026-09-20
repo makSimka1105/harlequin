@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from harlequin.references import BufferScope, RelationRef, read_scope
 
 
@@ -27,9 +25,17 @@ def test_read_scope_finds_aliases_and_bare_relations() -> None:
 
 
 def test_read_scope_survives_a_broken_buffer() -> None:
-    scope = read_scope("select from sales.customer c join")
+    # a dangling `on` is what a buffer looks like mid-join. An empty select
+    # list is not a shape to test here: the grammar recovers no from-clause
+    # at all without one, so no relation node exists to find.
+    scope = read_scope("select 1 from sales.customer c join person.person p on")
 
-    assert RelationRef(name="sales.customer", alias="c", is_cte=False) in scope.relations
+    assert (
+        RelationRef(name="sales.customer", alias="c", is_cte=False) in scope.relations
+    )
+    assert (
+        RelationRef(name="person.person", alias="p", is_cte=False) in scope.relations
+    )
 
 
 def test_read_scope_of_empty_text_is_empty() -> None:
