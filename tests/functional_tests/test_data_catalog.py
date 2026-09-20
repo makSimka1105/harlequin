@@ -20,11 +20,13 @@ from rich.text import Text
 from textual import work
 from textual.geometry import Offset
 from textual.widgets import Input, Tooltip
+from textual.widgets.text_area import Selection
 from textual.worker import Worker, WorkerState
 
 from harlequin import Harlequin
 from harlequin.autocomplete.completers import BUFFER_TYPE_LABEL
-from harlequin.catalog import CatalogItem, InteractiveCatalogItem
+from harlequin.autocomplete.completion import HarlequinCompletion
+from harlequin.catalog import Catalog, CatalogItem, InteractiveCatalogItem
 from harlequin.components import ErrorModal, ExportScreen
 from harlequin.components.data_catalog.database_tree import DatabaseTree
 from harlequin_duckdb.adapter import DuckDbAdapter
@@ -258,6 +260,126 @@ async def test_inserting_a_column_uses_its_alias(
         await pilot.pause()
 
         assert "main.customer.customerid" in editor.text
+
+
+@pytest.mark.asyncio
+async def test_alias_does_not_leak_across_a_statement_boundary(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    """Regression for the alias-leak finding: a scope is one statement, not the
+    whole buffer, so an alias reused for a different table in a later
+    statement cannot be mistaken for the one it names in an earlier one."""
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        editor = await wait_for_editor(pilot, app)
+        await wait_for_catalog_tree(pilot, app)
+
+        tree = app.data_catalog.database_tree
+        sales_table = tree.root.add(
+            "customer",
+            data=CatalogItem(
+                qualified_identifier='"tiny"."sales"."customer"',
+                query_name='"sales"."customer"',
+                label="customer",
+                type_label="t",
+            ),
+        )
+        sales_column = sales_table.add_leaf(
+            "id",
+            data=CatalogItem(
+                qualified_identifier='"tiny"."sales"."customer"."id"',
+                query_name='"id"',
+                label="id",
+                type_label="##",
+            ),
+        )
+
+        editor.text = (
+            "select 1 from sales.customer c;\nselect 1 from archive.customer c"
+        )
+        editor.selection = Selection((1, 5), (1, 5))
+        tree.post_message(DatabaseTree.NodeSubmitted(node=sales_column))
+        await pilot.pause()
+
+        # the cursor sits in the second statement, whose `c` names
+        # archive.customer, not the sales.customer column being inserted
+        assert "sales.customer.id" in editor.text
+        assert "c.id" not in editor.text
+
+
+@pytest.mark.asyncio
+async def test_inserting_a_bare_name_ambiguous_in_the_catalog_uses_the_full_path(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    """Regression for the ambiguity-guard finding: a bare `customer` alias
+    must not be trusted when the catalog holds more than one `customer`."""
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        editor = await wait_for_editor(pilot, app)
+        await wait_for_catalog_tree(pilot, app)
+
+        tree = app.data_catalog.database_tree
+        for schema in ("sales", "archive"):
+            table = tree.root.add(
+                f"{schema}-customer",
+                data=CatalogItem(
+                    qualified_identifier=f'"tiny"."{schema}"."customer"',
+                    query_name=f'"{schema}"."customer"',
+                    label="customer",
+                    type_label="t",
+                ),
+            )
+            if schema == "archive":
+                archive_column = table.add_leaf(
+                    "id",
+                    data=CatalogItem(
+                        qualified_identifier='"tiny"."archive"."customer"."id"',
+                        query_name='"id"',
+                        label="id",
+                        type_label="##",
+                    ),
+                )
+
+        editor.text = "select 1 from customer c"
+        tree.post_message(DatabaseTree.NodeSubmitted(node=archive_column))
+        await pilot.pause()
+
+        assert "archive.customer.id" in editor.text
+        assert "c.id" not in editor.text
+
+
+@pytest.mark.asyncio
+async def test_adapter_reserved_words_are_casefolded_before_matching(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    """Regression: bigquery and nebulagraph emit uppercase keyword labels, so
+    `_build_completers` must casefold them or they never match `_spell_segment`'s
+    lowercase check."""
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        assert app.connection is not None
+
+        app.connection.get_completions = lambda: [  # type: ignore[method-assign]
+            HarlequinCompletion(
+                label="ZZFORKKEYWORD",
+                type_label="kw",
+                value="ZZFORKKEYWORD",
+                priority=100,
+                context=None,
+            )
+        ]
+        app._build_completers(Catalog(items=[]))
+        await wait_for_workers(app)
+        await pilot.pause()
+
+        assert "zzforkkeyword" in app.reserved_words
 
 
 @pytest.mark.asyncio

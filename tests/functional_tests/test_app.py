@@ -8,14 +8,31 @@ from textual.message import Message
 from textual.worker import Worker, WorkerState
 
 from harlequin import Harlequin
-from harlequin.app import QueriesExecuted, QuerySubmitted, ResultsFetched
+from harlequin.app import (
+    CompletersReady,
+    QueriesExecuted,
+    QuerySubmitted,
+    ResultsFetched,
+)
 from harlequin.components import ErrorModal
+from harlequin.references import DEFAULT_RESERVED
 from tests.functional_tests.helpers import (
     wait_for_any_table,
     wait_for_editor,
     wait_for_error_modal,
 )
 from tests.waiting import wait_for, wait_for_messages
+
+
+def test_completers_ready_defaults_reserved_words() -> None:
+    """Regression: upstream churn around this constructor should not break it
+    just because a caller stops passing `reserved_words` explicitly."""
+    message = CompletersReady(
+        word_completer=cast(object, None),  # type: ignore[arg-type]
+        member_completer=cast(object, None),  # type: ignore[arg-type]
+    )
+
+    assert message.reserved_words == DEFAULT_RESERVED
 
 
 @pytest.mark.asyncio
