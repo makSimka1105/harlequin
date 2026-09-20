@@ -39,7 +39,7 @@ VIMNAV = HarlequinKeyMap(
     name="vimnav",
     bindings=[
         *VIMNAV_APP_BINDINGS,
-        *VIMNAV_RESULTS_VIEWER_BINDINGS,
         *VIMNAV_DATA_CATALOG_BINDINGS,
+        *VIMNAV_RESULTS_VIEWER_BINDINGS,
     ],
 )
