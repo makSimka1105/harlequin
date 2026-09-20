@@ -128,3 +128,30 @@ class HarlequinTree(Tree[TTreeNode], inherit_bindings=False):
 
     def action_hide_context_menu(self) -> None:
         self.post_message(self.HideContextMenu())
+
+    def action_cursor_next_container(self) -> None:
+        """Move to the next node that can be expanded, skipping leaves.
+
+        A column is a leaf and a relation is not, so one rule covers both of
+        the jumps this is for: from a column to the relation after it, and
+        from a schema's last relation to the next schema.
+        """
+        self._move_to_container(step=1)
+
+    def action_cursor_previous_container(self) -> None:
+        self._move_to_container(step=-1)
+
+    def _move_to_container(self, step: int) -> None:
+        """Scan for the nearest expandable node in one direction.
+
+        Scanning lines rather than walking the node graph is what keeps the
+        jump honest about what is on screen: a collapsed relation's columns
+        are nodes, but they occupy no line, and skipping them is the point.
+        """
+        line = self.cursor_line + step
+        while 0 <= line <= self.last_line:
+            node = self.get_node_at_line(line)
+            if node is not None and node.allow_expand:
+                self.move_cursor_to_line(line)
+                return
+            line += step

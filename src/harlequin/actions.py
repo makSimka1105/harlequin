@@ -229,6 +229,12 @@ HARLEQUIN_ACTIONS = {
     "data_catalog.toggle_node": Action(target=HarlequinTree, action="toggle_node"),
     "data_catalog.cursor_up": Action(target=HarlequinTree, action="cursor_up"),
     "data_catalog.cursor_down": Action(target=HarlequinTree, action="cursor_down"),
+    "data_catalog.cursor_next_container": Action(
+        target=HarlequinTree, action="cursor_next_container"
+    ),
+    "data_catalog.cursor_previous_container": Action(
+        target=HarlequinTree, action="cursor_previous_container"
+    ),
     # Scoped duplicates of app actions
     "data_catalog.focus_query_editor": Action(
         target=DataCatalog, action="focus_query_editor"

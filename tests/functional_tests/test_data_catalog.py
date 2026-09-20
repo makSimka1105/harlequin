@@ -941,3 +941,64 @@ async def test_background_loader_failure_is_surfaced_without_crashing(
         # the failure stopped the loader: it is terminal, not waiting for work
         assert loader.state == WorkerState.ERROR
         assert app.is_running
+
+
+@pytest.mark.asyncio
+async def test_container_jumps_skip_columns(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        await wait_for_catalog_tree(pilot, app)
+
+        # nodes of our own, so the test does not depend on the fixture's schema
+        tree = app.data_catalog.database_tree
+        first = tree.root.add("first", data=None)
+        first.add_leaf("col_a", data=None)
+        first.add_leaf("col_b", data=None)
+        second = tree.root.add("second", data=None)
+        second.add_leaf("col_c", data=None)
+        first.expand()
+        second.expand()
+        await pilot.pause()
+
+        tree.move_cursor_to_line(first.line)
+        tree.action_cursor_next_container()
+        assert tree.cursor_node is not None
+        assert tree.cursor_node.label.plain == "second"
+
+        # from a column, the next container is the following table, not the
+        # next column
+        tree.move_cursor_to_line(first.children[0].line)
+        tree.action_cursor_next_container()
+        assert tree.cursor_node is not None
+        assert tree.cursor_node.label.plain == "second"
+
+        tree.action_cursor_previous_container()
+        assert tree.cursor_node is not None
+        assert tree.cursor_node.label.plain == "first"
+
+
+@pytest.mark.asyncio
+async def test_container_jumps_stay_in_bounds(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        await wait_for_catalog_tree(pilot, app)
+
+        tree = app.data_catalog.database_tree
+        only = tree.root.add("only", data=None)
+        only.add_leaf("col", data=None)
+        only.expand()
+        await pilot.pause()
+
+        # no container after the last one: the cursor must not move or wrap
+        tree.move_cursor_to_line(only.children[0].line)
+        line_before = tree.cursor_line
+        tree.action_cursor_next_container()
+        assert tree.cursor_line == line_before
