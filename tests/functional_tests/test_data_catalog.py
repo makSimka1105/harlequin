@@ -944,6 +944,64 @@ async def test_background_loader_failure_is_surfaced_without_crashing(
 
 
 @pytest.mark.asyncio
+async def test_container_jumps_cross_levels_in_real_catalog(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    """The jump has to hold up against harlequin's own allow_expand rule, not
+    Textual's defaults for a manually built tree: a real column has no
+    children and is already loaded, a real relation always has children. This
+    drives the app_multi_duck fixture's actual two-database catalog down to a
+    real column and checks the forward jump leaves the relation, its schema,
+    and its database behind -- landing on the next database, not a sibling
+    column or a sibling relation.
+    """
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        tree = await wait_for_catalog_tree(pilot, app)
+
+        databases = tree.root.children
+        assert len(databases) == 2
+        small_db, tiny_db = databases
+        assert small_db.label.plain.startswith("small")
+        assert tiny_db.label.plain.startswith("tiny")
+
+        await expand_catalog_node(pilot, small_db)
+        empty_schema, main_schema = small_db.children
+        assert empty_schema.label.plain.startswith("empty")
+        assert main_schema.label.plain.startswith("main")
+
+        # a schema with no relations is a leaf by harlequin's own rule, not
+        # Textual's default -- but that only shows up once the schema's own
+        # children have actually been fetched, so expand it too
+        await expand_catalog_node(pilot, empty_schema)
+        assert len(empty_schema.children) == 0
+        assert empty_schema.allow_expand is False
+
+        await expand_catalog_node(pilot, main_schema)
+        [drivers] = main_schema.children
+        assert drivers.allow_expand is True
+
+        await expand_catalog_node(pilot, drivers)
+        columns = drivers.children
+        assert len(columns) > 1
+        for column in columns:
+            assert column.allow_expand is False
+
+        tree.move_cursor_to_line(columns[0].line)
+        tree.action_cursor_next_container()
+
+        assert tree.cursor_node is tiny_db
+        assert tree.cursor_node.label.plain.startswith("tiny")
+
+        tree.action_cursor_previous_container()
+
+        assert tree.cursor_node is drivers
+        assert tree.cursor_node.label.plain.startswith("drivers")
+
+
+@pytest.mark.asyncio
 async def test_container_jumps_skip_columns(
     app_multi_duck: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
