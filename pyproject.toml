@@ -157,6 +157,7 @@ sqlite = "harlequin_sqlite:HarlequinSqliteAdapter"
 [project.entry-points."harlequin.keymap"]
 
 vscode = "harlequin_vscode:VSCODE"
+vimnav = "harlequin_vimnav:VIMNAV"
 
 
 [build-system]
