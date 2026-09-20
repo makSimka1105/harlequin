@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from harlequin.catalog import CatalogItem
-from harlequin.references import BufferScope, RelationRef, read_scope, DEFAULT_RESERVED, path_for
+from harlequin.references import (
+    DEFAULT_RESERVED,
+    BufferScope,
+    RelationRef,
+    path_for,
+    read_scope,
+)
 
 
 def test_read_scope_finds_aliases_and_bare_relations() -> None:
@@ -125,7 +131,7 @@ def test_path_for_column_ignores_an_unaliased_table() -> None:
     result = path_for(
         item=_column("sales", "customer", "customerid"),
         owner=_relation("sales", "customer"),
-        scope=read_scope("select from sales.customer"),
+        scope=read_scope("select 1 from sales.customer"),
         reserved=DEFAULT_RESERVED,
     )
 
