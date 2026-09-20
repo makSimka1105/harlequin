@@ -10,9 +10,9 @@ def test_vimnav_is_installed_as_a_keymap_plugin() -> None:
 
 
 def test_vimnav_binds_tree_navigation() -> None:
-    from harlequin_vimnav import VIMNAV
+    from harlequin_vimnav import VIMNAV_DATA_CATALOG_BINDINGS
 
-    bound = {binding.keys: binding.action for binding in VIMNAV.bindings}
+    bound = {binding.keys: binding.action for binding in VIMNAV_DATA_CATALOG_BINDINGS}
 
     assert bound["j"] == "data_catalog.cursor_down"
     assert bound["k"] == "data_catalog.cursor_up"
@@ -21,9 +21,9 @@ def test_vimnav_binds_tree_navigation() -> None:
 
 
 def test_vimnav_binds_pane_switching() -> None:
-    from harlequin_vimnav import VIMNAV
+    from harlequin_vimnav import VIMNAV_APP_BINDINGS
 
-    bound = {binding.keys: binding.action for binding in VIMNAV.bindings}
+    bound = {binding.keys: binding.action for binding in VIMNAV_APP_BINDINGS}
 
     assert bound["alt+h"] == "focus_data_catalog"
     assert bound["alt+j"] == "focus_results_viewer"
