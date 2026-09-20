@@ -64,7 +64,7 @@ class CatalogPath:
         """
         if text is None or not text.strip():
             return cls()
-        parsed = _split(text)
+        parsed = split_path(text)
         *ancestors, (last, last_was_quoted) = parsed
         for value, was_quoted in ancestors:
             if not was_quoted and _has_wildcard(value):
@@ -174,7 +174,7 @@ def _has_wildcard(segment: str) -> bool:
     return any(char in segment for char in WILDCARDS)
 
 
-def _split(text: str) -> list[tuple[str, bool]]:
+def split_path(text: str) -> list[tuple[str, bool]]:
     """Each segment of a dotted path, and whether it was written in quotes.
 
     A segment is one or the other and never a mix, so `"a"b` is refused rather
