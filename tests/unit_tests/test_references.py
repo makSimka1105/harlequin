@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from harlequin.references import BufferScope, RelationRef, read_scope
+from harlequin.catalog import CatalogItem
+from harlequin.references import BufferScope, RelationRef, read_scope, DEFAULT_RESERVED, path_for
 
 
 def test_read_scope_finds_aliases_and_bare_relations() -> None:
@@ -78,3 +79,109 @@ def test_alias_for_does_not_match_a_different_table() -> None:
     scope = read_scope("select 1 from sales.store s")
 
     assert scope.alias_for('"retail_training"."sales"."customer"') is None
+
+
+def _relation(schema: str, table: str) -> CatalogItem:
+    return CatalogItem(
+        qualified_identifier=f'"retail_training"."{schema}"."{table}"',
+        query_name=f'"{schema}"."{table}"',
+        label=table,
+        type_label="t",
+    )
+
+
+def _column(schema: str, table: str, column: str) -> CatalogItem:
+    return CatalogItem(
+        qualified_identifier=f'"retail_training"."{schema}"."{table}"."{column}"',
+        query_name=f'"{column}"',
+        label=column,
+        type_label="##",
+    )
+
+
+def test_path_for_column_without_the_table_in_the_buffer() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "customerid"),
+        owner=_relation("sales", "customer"),
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "sales.customer.customerid"
+
+
+def test_path_for_column_uses_the_alias_when_there_is_one() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "customerid"),
+        owner=_relation("sales", "customer"),
+        scope=read_scope("select 1 from sales.customer c"),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "c.customerid"
+
+
+def test_path_for_column_ignores_an_unaliased_table() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "customerid"),
+        owner=_relation("sales", "customer"),
+        scope=read_scope("select from sales.customer"),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "sales.customer.customerid"
+
+
+def test_path_for_relation_is_already_qualified() -> None:
+    result = path_for(
+        item=_relation("sales", "customer"),
+        owner=None,
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "sales.customer"
+
+
+def test_path_for_relation_collapses_to_its_alias() -> None:
+    result = path_for(
+        item=_relation("sales", "customer"),
+        owner=None,
+        scope=read_scope("select 1 from sales.customer c"),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "c"
+
+
+def test_path_for_keeps_quotes_around_an_unsafe_identifier() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "Order Date"),
+        owner=_relation("sales", "customer"),
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == 'sales.customer."Order Date"'
+
+
+def test_path_for_keeps_quotes_around_a_reserved_word() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "order"),
+        owner=_relation("sales", "customer"),
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == 'sales.customer."order"'
+
+
+def test_path_for_without_an_owner_falls_back_to_the_query_name() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "customerid"),
+        owner=None,
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "customerid"
