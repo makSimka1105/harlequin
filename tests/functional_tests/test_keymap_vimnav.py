@@ -30,6 +30,26 @@ def test_vimnav_binds_pane_switching() -> None:
     assert bound["alt+k"] == "focus_query_editor"
 
 
+def test_vimnav_binds_tab_switching() -> None:
+    """j/k on the focused widget shadow vscode's bare j/k tab bindings, so
+    those tab actions become unreachable by any key unless vimnav supplies
+    its own binding for them on a key it does not already use for cursor
+    movement.
+    """
+    from harlequin_vimnav import (
+        VIMNAV_DATA_CATALOG_BINDINGS,
+        VIMNAV_RESULTS_VIEWER_BINDINGS,
+    )
+
+    catalog_bound = {b.action: b.keys for b in VIMNAV_DATA_CATALOG_BINDINGS}
+    results_bound = {b.action: b.keys for b in VIMNAV_RESULTS_VIEWER_BINDINGS}
+
+    assert catalog_bound["data_catalog.previous_tab"] == "["
+    assert catalog_bound["data_catalog.next_tab"] == "]"
+    assert results_bound["results_viewer.previous_tab"] == "["
+    assert results_bound["results_viewer.next_tab"] == "]"
+
+
 def test_vimnav_actions_all_exist() -> None:
     from harlequin.actions import HARLEQUIN_ACTIONS
     from harlequin_vimnav import VIMNAV
