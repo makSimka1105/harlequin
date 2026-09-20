@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from harlequin.statements import Statement, find_separators, split
+from harlequin.statements import Statement, find_separators, split, statement_at
 
 # (name, script, expected statements). The name is the pytest id.
 CORPUS: list[tuple[str, str, list[str]]] = [
@@ -255,3 +255,22 @@ def test_find_separators_after_dollar_quoted_body() -> None:
     """
     script = "create function f() as $$\n select 'café';\n$$;\nselect 2"
     assert find_separators(script) == [(2, 3)]
+
+
+def test_statement_at_returns_the_statement_the_cursor_sits_in() -> None:
+    script = "select 1 from sales.customer c;\nselect 1 from archive.customer c"
+
+    assert statement_at(script, (1, 5)) == "select 1 from archive.customer c"
+    assert statement_at(script, (0, 5)) == "select 1 from sales.customer c;"
+
+
+def test_statement_at_of_a_single_statement_is_the_whole_buffer() -> None:
+    assert statement_at("select 1", (0, 3)) == "select 1"
+
+
+def test_statement_at_of_empty_text_is_none() -> None:
+    assert statement_at("", (0, 0)) is None
+
+
+def test_statement_at_falls_back_to_none_in_trailing_whitespace() -> None:
+    assert statement_at("select 1;\n\n", (2, 0)) is None

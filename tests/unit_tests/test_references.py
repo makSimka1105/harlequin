@@ -182,6 +182,104 @@ def test_path_for_keeps_quotes_around_a_reserved_word() -> None:
     assert result == 'sales.customer."order"'
 
 
+def test_alias_for_refuses_a_bare_name_ambiguous_in_the_catalog() -> None:
+    scope = read_scope("select 1 from customer c")
+
+    alias = scope.alias_for(
+        '"retail_training"."archive"."customer"',
+        known_relations=(
+            '"retail_training"."sales"."customer"',
+            '"retail_training"."archive"."customer"',
+        ),
+    )
+
+    assert alias is None
+
+
+def test_alias_for_allows_an_unambiguous_bare_name() -> None:
+    scope = read_scope("select 1 from customer c")
+
+    alias = scope.alias_for(
+        '"retail_training"."sales"."customer"',
+        known_relations=('"retail_training"."sales"."customer"',),
+    )
+
+    assert alias == "c"
+
+
+def test_path_for_column_refuses_an_alias_ambiguous_in_the_catalog() -> None:
+    result = path_for(
+        item=_column("archive", "customer", "id"),
+        owner=_relation("archive", "customer"),
+        scope=read_scope("select 1 from customer c"),
+        reserved=DEFAULT_RESERVED,
+        known_relations=(
+            '"retail_training"."sales"."customer"',
+            '"retail_training"."archive"."customer"',
+        ),
+    )
+
+    assert result == "archive.customer.id"
+
+
+def test_alias_for_matches_a_quoted_segment_case_sensitively() -> None:
+    scope = read_scope('select 1 from sales."Customer" c')
+
+    assert scope.alias_for('"retail_training"."sales"."customer"') is None
+    assert scope.alias_for('"retail_training"."sales"."Customer"') == "c"
+
+
+def test_path_for_column_ignores_a_table_that_differs_only_in_case() -> None:
+    result = path_for(
+        item=_column("sales", "customer", "customerid"),
+        owner=_relation("sales", "customer"),
+        scope=read_scope('select 1 from sales."Customer" c'),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "sales.customer.customerid"
+
+
+def _backtick_relation(dataset: str, table: str) -> CatalogItem:
+    return CatalogItem(
+        qualified_identifier=f"`project`.`{dataset}`.`{table}`",
+        query_name=f"`{table}`",
+        label=table,
+        type_label="t",
+    )
+
+
+def _backtick_column(dataset: str, table: str, column: str) -> CatalogItem:
+    return CatalogItem(
+        qualified_identifier=f"`project`.`{dataset}`.`{table}`.`{column}`",
+        query_name=f"`{column}`",
+        label=column,
+        type_label="s",
+    )
+
+
+def test_path_for_refuses_to_guess_a_backtick_spelled_column() -> None:
+    result = path_for(
+        item=_backtick_column("ds", "t", "col"),
+        owner=_backtick_relation("ds", "t"),
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "`col`"
+
+
+def test_path_for_refuses_to_guess_a_backtick_spelled_table() -> None:
+    result = path_for(
+        item=_backtick_relation("ds", "t"),
+        owner=None,
+        scope=read_scope("select "),
+        reserved=DEFAULT_RESERVED,
+    )
+
+    assert result == "`t`"
+
+
 def test_path_for_without_an_owner_falls_back_to_the_query_name() -> None:
     result = path_for(
         item=_column("sales", "customer", "customerid"),
