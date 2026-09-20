@@ -102,6 +102,7 @@ from harlequin.messages import NewCatalog, NewCatalogItems, WidgetMounted
 from harlequin.plugins import load_keymap_plugins
 from harlequin.query import ExecutedStatement, ResultSet, RowLimit, execute, fetch
 from harlequin.query_log import UI_BUSY_TIMEOUT_MS, QueryLog
+from harlequin.references import DEFAULT_RESERVED, path_for, read_scope
 from harlequin.statements import Statement
 from harlequin.transaction_mode import HarlequinTransactionMode
 from harlequin.windows_timezone import (
@@ -229,11 +230,15 @@ class TransactionModeChanged(Message):
 
 class CompletersReady(Message):
     def __init__(
-        self, word_completer: WordCompleter, member_completer: MemberCompleter
+        self,
+        word_completer: WordCompleter,
+        member_completer: MemberCompleter,
+        reserved_words: frozenset[str],
     ) -> None:
         super().__init__()
         self.word_completer = word_completer
         self.member_completer = member_completer
+        self.reserved_words = reserved_words
 
 
 class TzDataDownloadStarted(Message):
@@ -383,6 +388,7 @@ class Harlequin(AppBase):
         self._last_checkpointed_cache: Cache | None = None
         """What the recovery file holds, so an idle session stops rewriting it."""
         self.connection: HarlequinConnection | None = None
+        self.reserved_words: frozenset[str] = DEFAULT_RESERVED
         self._recovery_lock = threading.Lock()
         """Held across reopening the tunnel and the connection through it.
 
@@ -586,8 +592,31 @@ class Harlequin(AppBase):
             callback = partial(self.post_message, message)
             self.set_timer(delay=0.1, callback=callback)
             return
-        self.editor.insert_text_at_selection(text=message.insert_name)
+        self.editor.insert_text_at_selection(text=self._insert_text_for(message))
         self.editor.focus()
+
+    def _insert_text_for(self, message: HarlequinTree.NodeSubmitted) -> str:
+        """What a submitted node puts in the editor.
+
+        Only a catalog item gets a path: a file or an S3 key has no owner and no
+        alias, and its own spelling is already what the query needs.
+        """
+        node = message.node
+        if not isinstance(node.data, CatalogItem):
+            return message.insert_name
+        # the tree's own root is a placeholder node, not a catalog owner
+        owner = (
+            node.parent.data
+            if node.parent is not None and node.parent.parent is not None
+            else None
+        )
+        assert self.editor is not None
+        return path_for(
+            item=node.data,
+            owner=owner if isinstance(owner, CatalogItem) else None,
+            scope=read_scope(self.editor.text),
+            reserved=self.reserved_words,
+        )
 
     def _recycle_message(self, message: Message) -> None:
         """Re-post a message we can't handle yet, while we wait for the editor."""
@@ -1065,6 +1094,7 @@ class Harlequin(AppBase):
 
     @on(CompletersReady)
     def update_editor_completers(self, message: CompletersReady) -> None:
+        self.reserved_words = message.reserved_words
         self.editor_collection.word_completer = message.word_completer
         self.editor_collection.member_completer = message.member_completer
 
@@ -1756,13 +1786,22 @@ class Harlequin(AppBase):
                 "Harlequin could not load completions from your adapter.",
                 severity="warning",
             )
+        # an adapter reserves more words than core knows about, and an
+        # unquoted reserved word is a broken query rather than a long one
+        adapter_reserved = frozenset(
+            completion.label
+            for completion in extra_completions
+            if completion.type_label == "kw" and completion.priority == 100
+        )
         word_completer, member_completer = completer_factory(
             catalog=catalog,
             extra_completions=extra_completions,
         )
         self.post_message(
             CompletersReady(
-                word_completer=word_completer, member_completer=member_completer
+                word_completer=word_completer,
+                member_completer=member_completer,
+                reserved_words=DEFAULT_RESERVED | adapter_reserved,
             )
         )
 

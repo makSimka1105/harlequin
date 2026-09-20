@@ -144,7 +144,7 @@ async def test_data_catalog(
         await pilot.press("ctrl+j")
         await pilot.pause()
         assert schema_main.is_expanded is True
-        assert editor.text == '"small"."main"'
+        assert editor.text == "small.main"
         assert not catalog.has_focus
         snap_results.append(await app_snapshot(app, "Inserted small.main"))
 
@@ -170,11 +170,12 @@ async def test_data_catalog(
         await pilot.press("ctrl+c")
         assert mock_pyperclip.paste() == '"dob"'
 
-        # reset the editor, then insert "dob"
+        # reset the editor, then insert "dob"; the buffer names no alias for
+        # "drivers", so the insert falls back to its full path
         editor.text = ""
         await pilot.press("ctrl+j")
         await pilot.pause()
-        assert editor.text == '"dob"'
+        assert editor.text == "main.drivers.dob"
         snap_results.append(await app_snapshot(app, "small.main.drivers.dob inserted"))
 
         assert all(snap_results)
@@ -210,8 +211,53 @@ async def test_double_click_inserts_node_into_editor(
         # a double click inserts the node's query name into the editor
         await pilot.double_click(catalog.__class__, offset=Offset(x=6, y=1))
         await pilot.pause()
-        assert editor.text == '"small"'
+        assert editor.text == "small"
         assert dbs[0].is_expanded is True
+
+
+@pytest.mark.asyncio
+async def test_inserting_a_column_uses_its_alias(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        editor = await wait_for_editor(pilot, app)
+        await wait_for_catalog_tree(pilot, app)
+
+        # nodes of our own, so the test does not depend on the fixture's schema
+        tree = app.data_catalog.database_tree
+        table = tree.root.add(
+            "customer",
+            data=CatalogItem(
+                qualified_identifier='"tiny"."main"."customer"',
+                query_name='"main"."customer"',
+                label="customer",
+                type_label="t",
+            ),
+        )
+        column = table.add_leaf(
+            "customerid",
+            data=CatalogItem(
+                qualified_identifier='"tiny"."main"."customer"."customerid"',
+                query_name='"customerid"',
+                label="customerid",
+                type_label="##",
+            ),
+        )
+
+        editor.text = "select 1\nfrom main.customer c"
+        tree.post_message(DatabaseTree.NodeSubmitted(node=column))
+        await pilot.pause()
+
+        assert "c.customerid" in editor.text
+
+        editor.text = "select "
+        tree.post_message(DatabaseTree.NodeSubmitted(node=column))
+        await pilot.pause()
+
+        assert "main.customer.customerid" in editor.text
 
 
 @pytest.mark.asyncio
