@@ -189,3 +189,40 @@ def find_separators(text: str) -> list[Point]:
         row = min(bisect_right(line_starts, offset) - 1, len(lines) - 1)
         points.append((row, offset - line_starts[row]))
     return points
+
+
+def statement_at(text: str, point: Point) -> str | None:
+    """The statement whose span contains `point`, or None if none does.
+
+    Spans partition the whole buffer the same way `split()` does, just
+    expressed in `Point`s instead of offsets, so a cursor position -- what the
+    editor reports -- can be located directly, without a caller redoing the
+    offset arithmetic `find_separators()` already owns.
+
+    A `point` past the end of the buffer clamps to its last row, matching
+    `find_separators()`. None means `point` falls in a stretch with no
+    statement in it -- trailing separators, or blank space -- and callers
+    that want a scope regardless should fall back to the whole buffer.
+    """
+    if not text.strip():
+        return None
+
+    offsets = _separator_offsets(text)
+    if not offsets:
+        return text
+
+    lines = text.splitlines(keepends=True)
+    line_starts = [0]
+    for line in lines:
+        line_starts.append(line_starts[-1] + len(line))
+
+    row = min(max(point[0], 0), len(lines) - 1)
+    target = line_starts[row] + point[1]
+
+    start = 0
+    for end in [*offsets, len(text)]:
+        if start <= target <= end:
+            sql = text[start:end].strip()
+            return sql if sql else None
+        start = end
+    return None
