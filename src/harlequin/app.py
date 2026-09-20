@@ -103,7 +103,7 @@ from harlequin.plugins import load_keymap_plugins
 from harlequin.query import ExecutedStatement, ResultSet, RowLimit, execute, fetch
 from harlequin.query_log import UI_BUSY_TIMEOUT_MS, QueryLog
 from harlequin.references import DEFAULT_RESERVED, path_for, read_scope
-from harlequin.statements import Statement
+from harlequin.statements import Statement, statement_at
 from harlequin.transaction_mode import HarlequinTransactionMode
 from harlequin.windows_timezone import (
     TZ_DATA_DOCS_URL,
@@ -233,7 +233,7 @@ class CompletersReady(Message):
         self,
         word_completer: WordCompleter,
         member_completer: MemberCompleter,
-        reserved_words: frozenset[str],
+        reserved_words: frozenset[str] = DEFAULT_RESERVED,
     ) -> None:
         super().__init__()
         self.word_completer = word_completer
@@ -614,9 +614,50 @@ class Harlequin(AppBase):
         return path_for(
             item=node.data,
             owner=owner if isinstance(owner, CatalogItem) else None,
-            scope=read_scope(self.editor.text),
+            scope=read_scope(self._scope_text()),
             reserved=self.reserved_words,
+            known_relations=self._known_relations(),
         )
+
+    def _scope_text(self) -> str:
+        """The buffer text to read a scope from: the statement under the cursor.
+
+        An alias belongs to one statement; parsing the whole buffer would let
+        an alias from an earlier statement leak into a later one that reuses
+        it for a different table. A cursor that lands outside any statement --
+        trailing whitespace, an empty buffer -- falls back to the whole
+        buffer rather than an empty scope.
+        """
+        assert self.editor is not None
+        text = self.editor.text
+        statement = statement_at(text, self.editor.selection.end)
+        return statement if statement is not None else text
+
+    def _known_relations(self) -> frozenset[str]:
+        """Qualified identifiers of every relation loaded in the Data Catalog.
+
+        Best-effort: the catalog loads lazily, so a schema branch nobody has
+        expanded in the tree contributes nothing here. A node counts as a
+        relation when its own `query_name` has more than one segment -- the
+        same rule `path_for` uses to tell a relation from a column -- so an
+        adapter that does not schema-qualify relations is invisible to this
+        walk too, same as it is to `path_for`.
+        """
+        from harlequin.navigate import split_path
+
+        root = self.data_catalog.database_tree.root
+        if root is None:
+            return frozenset()
+
+        relations: set[str] = set()
+        stack = list(root.children)
+        while stack:
+            node = stack.pop()
+            item = node.data
+            if isinstance(item, CatalogItem) and len(split_path(item.query_name)) > 1:
+                relations.add(item.qualified_identifier)
+            stack.extend(node.children)
+        return frozenset(relations)
 
     def _recycle_message(self, message: Message) -> None:
         """Re-post a message we can't handle yet, while we wait for the editor."""
@@ -1789,7 +1830,7 @@ class Harlequin(AppBase):
         # an adapter reserves more words than core knows about, and an
         # unquoted reserved word is a broken query rather than a long one
         adapter_reserved = frozenset(
-            completion.label
+            completion.label.casefold()
             for completion in extra_completions
             if completion.type_label == "kw" and completion.priority == 100
         )
