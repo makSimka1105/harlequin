@@ -1060,3 +1060,9 @@ async def test_container_jumps_stay_in_bounds(
         line_before = tree.cursor_line
         tree.action_cursor_next_container()
         assert tree.cursor_line == line_before
+
+        # same story at the top: no container before the first line either
+        tree.move_cursor_to_line(0)
+        assert tree.cursor_line == 0
+        tree.action_cursor_previous_container()
+        assert tree.cursor_line == 0
