@@ -73,6 +73,7 @@ from harlequin.components.confirm_modal import ConfirmModal
 from harlequin.components.data_catalog import ContextMenu
 from harlequin.components.data_catalog.tree import HarlequinTree
 from harlequin.components.debug_info import AdapterDebugInfo, HarlequinDebugInfo
+from harlequin.components.relations_panel import RelationsPanel
 from harlequin.config import (
     get_highest_priority_existing_config_file,
     load_config,
@@ -103,6 +104,7 @@ from harlequin.plugins import load_keymap_plugins
 from harlequin.query import ExecutedStatement, ResultSet, RowLimit, execute, fetch
 from harlequin.query_log import UI_BUSY_TIMEOUT_MS, QueryLog
 from harlequin.references import DEFAULT_RESERVED, path_for, read_scope
+from harlequin.relations import RelationGraph
 from harlequin.statements import Statement, statement_at
 from harlequin.transaction_mode import HarlequinTransactionMode
 from harlequin.windows_timezone import (
@@ -226,6 +228,12 @@ class TransactionModeChanged(Message):
     def __init__(self, new_mode: HarlequinTransactionMode | None) -> None:
         super().__init__()
         self.new_mode = new_mode
+
+
+class RelationsReady(Message):
+    def __init__(self, graph: RelationGraph) -> None:
+        self.graph = graph
+        super().__init__()
 
 
 class CompletersReady(Message):
@@ -429,6 +437,7 @@ class Harlequin(AppBase):
         editor_placeholder = Lazy(widget=self.editor_collection)
         editor_placeholder.border_title = self.editor_collection.border_title
         editor_placeholder.loading = True
+        self.relations_panel = RelationsPanel()
         self.results_viewer = ResultsViewer()
         self.run_query_bar = RunQueryBar(
             query_limit=self.query_limit,
@@ -439,7 +448,9 @@ class Harlequin(AppBase):
 
         # lay out the widgets
         with Horizontal():
-            yield self.data_catalog
+            with Vertical(id="catalog_panel"):
+                yield self.data_catalog
+                yield self.relations_panel
             with Vertical(id="main_panel"):
                 yield editor_placeholder
                 yield self.run_query_bar
@@ -573,6 +584,7 @@ class Harlequin(AppBase):
     @on(DatabaseConnected)
     def initialize_app(self, message: DatabaseConnected) -> None:
         self.connection = message.connection
+        self.load_relations()
         self.post_message(
             TransactionModeChanged(new_mode=message.connection.transaction_mode)
         )
@@ -1040,10 +1052,12 @@ class Harlequin(AppBase):
             if target == self.editor_collection:
                 self.run_query_bar.disabled = False
             self.data_catalog.disabled = True
+            self.relations_panel.disabled = True
         else:
             for w in all_widgets:
                 w.disabled = False
             self.data_catalog.disabled = self.sidebar_hidden
+            self.relations_panel.disabled = self.sidebar_hidden
 
     @on(QuerySubmitted)
     def execute_query(self, message: QuerySubmitted) -> None:
@@ -1060,6 +1074,7 @@ class Harlequin(AppBase):
             if self.data_catalog.has_focus and self.editor is not None:
                 self.editor.focus()
         self.data_catalog.disabled = sidebar_hidden
+        self.relations_panel.disabled = sidebar_hidden
 
     def _post_tunnel_closed(self, notice: str) -> None:
         """Called on the tunnel's watcher thread, so it only posts a message.
@@ -1460,6 +1475,7 @@ class Harlequin(AppBase):
         if self.sidebar_hidden is False and self.data_catalog.disabled is True:
             # sidebar was hidden by f10; toggle should show it
             self.data_catalog.disabled = False
+            self.relations_panel.disabled = False
         else:
             self.sidebar_hidden = not self.sidebar_hidden
 
@@ -1844,6 +1860,36 @@ class Harlequin(AppBase):
                 member_completer=member_completer,
                 reserved_words=DEFAULT_RESERVED | adapter_reserved,
             )
+        )
+
+    @work(thread=True, exclusive=True, exit_on_error=False, group="relations")
+    def load_relations(self) -> None:
+        """Read the foreign keys once, off the event loop.
+
+        Adapters that do not introspect them return nothing, and the panel then
+        says so instead of staying blank.
+        """
+        if self.connection is None:
+            return
+        try:
+            edges = self.connection.get_foreign_keys()
+        except Exception:
+            # foreign keys are a nicety; a database that will not report them
+            # should not stop the rest of the app from working
+            edges = []
+        self.post_message(RelationsReady(graph=RelationGraph(edges)))
+
+    @on(RelationsReady)
+    def update_relations_panel(self, message: RelationsReady) -> None:
+        self.relations_panel.update_graph(message.graph)
+
+    @on(HarlequinTree.NodeHighlighted)
+    def show_relations_for_node(
+        self, message: HarlequinTree.NodeHighlighted[CatalogItem]
+    ) -> None:
+        item = message.node.data
+        self.relations_panel.show(
+            item.qualified_identifier if isinstance(item, CatalogItem) else None
         )
 
     @work(thread=True, exclusive=True, exit_on_error=False, group="schema_updaters")

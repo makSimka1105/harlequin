@@ -38,6 +38,7 @@ HistoryScreen QueryPreview:focus-within {
 CodeEditor:disabled,
 Container:disabled,
 DataCatalog:disabled,
+RelationsPanel:disabled,
 EditorCollection:disabled,
 ResultsViewer:disabled,
 ResultsTable:disabled,
@@ -698,5 +699,23 @@ ConfirmModal Horizontal#button_row Button#no{
     background: $error;
     &:hover {
         background: $secondary;
+    }
+}
+
+#catalog_panel {
+    height: 1fr;
+    width: 1fr;
+}
+
+/* The panel is a reference, not a workspace: it gets a fixed slice of the
+   column so the catalog above it does not shrink as its contents change. */
+RelationsPanel {
+    height: 12;
+    background: $background;
+    padding: 0 1;
+    border: round $border-color-nofocus;
+    &:focus {
+        border: round $border-color-focus;
+        background-tint: $background;
     }
 }
