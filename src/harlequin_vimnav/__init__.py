@@ -12,16 +12,19 @@ from harlequin.keymap import HarlequinKeyBinding, HarlequinKeyMap
 VIMNAV_APP_BINDINGS = [
     # alt, not ctrl: ctrl+j is an alias of newline and ctrl+h of backspace,
     # and textual has no chords, so ctrl+w h is not available either.
-    # Pane switching is not here: each direction means "the pane on that
-    # side of where I am now", like ctrl+w h in vim, so it is bound per-pane
-    # below instead of once at the app level.
+    # Pane switching is mnemonic (alt+r/e/c, matching each pane's first
+    # letter) rather than relative like ctrl+w h in vim. The published pipx
+    # release cannot express the fork's relative, per-pane focus actions
+    # (they are code, not bindings it can configure), so it only ever has
+    # the unscoped focus_* actions bound directly here. One mnemonic model
+    # shared by both builds beats a better model that only the fork has;
+    # these mirror the owner's ~/.config/harlequin/config.toml bindings.
     HarlequinKeyBinding("alt+p", "show_query_history"),
-    HarlequinKeyBinding("alt+c", "cancel_query"),
-]
-
-VIMNAV_CODE_EDITOR_BINDINGS = [
-    HarlequinKeyBinding("alt+h", "code_editor.focus_data_catalog"),
-    HarlequinKeyBinding("alt+j", "code_editor.focus_results_viewer"),
+    # alt+c now means "focus the catalog", so cancel moved off it to alt+x.
+    HarlequinKeyBinding("alt+x", "cancel_query"),
+    HarlequinKeyBinding("alt+r", "focus_results_viewer"),
+    HarlequinKeyBinding("alt+e", "focus_query_editor"),
+    HarlequinKeyBinding("alt+c", "focus_data_catalog"),
 ]
 
 VIMNAV_DATA_CATALOG_BINDINGS = [
@@ -31,8 +34,6 @@ VIMNAV_DATA_CATALOG_BINDINGS = [
     HarlequinKeyBinding("K", "data_catalog.cursor_previous_container"),
     HarlequinKeyBinding("h", "data_catalog.collapse_node"),
     HarlequinKeyBinding("l", "data_catalog.expand_node"),
-    HarlequinKeyBinding("alt+l", "data_catalog.focus_query_editor"),
-    HarlequinKeyBinding("alt+j", "data_catalog.focus_results_viewer"),
     # vscode's j/k tab bindings are the only way to reach these actions, and
     # our own j/k win the binding walk on the focused catalog tree, so those
     # two would otherwise become unreachable by any key.
@@ -48,8 +49,6 @@ VIMNAV_RESULTS_VIEWER_BINDINGS = [
     HarlequinKeyBinding("k", "results_viewer.cursor_up"),
     HarlequinKeyBinding("h", "results_viewer.cursor_left"),
     HarlequinKeyBinding("l", "results_viewer.cursor_right"),
-    HarlequinKeyBinding("alt+h", "results_viewer.focus_data_catalog"),
-    HarlequinKeyBinding("alt+k", "results_viewer.focus_query_editor"),
     # same story as the data catalog: vscode's only bindings for these two
     # are bare j/k, which our own j/k shadow on the focused results table.
     # Textual names these keys left_square_bracket/right_square_bracket
@@ -63,7 +62,6 @@ VIMNAV = HarlequinKeyMap(
     name="vimnav",
     bindings=[
         *VIMNAV_APP_BINDINGS,
-        *VIMNAV_CODE_EDITOR_BINDINGS,
         *VIMNAV_DATA_CATALOG_BINDINGS,
         *VIMNAV_RESULTS_VIEWER_BINDINGS,
     ],

@@ -55,35 +55,19 @@ def test_vimnav_binds_tree_navigation() -> None:
 
 
 def test_vimnav_binds_pane_switching() -> None:
-    """Pane switching is relative, like `ctrl+w h` in vim: a direction means
-    the pane on that side of wherever the cursor already is, so each pane
-    gets its own bindings rather than one absolute set at the app level.
+    """Pane switching is mnemonic and app-level (alt+r/e/c), matching the
+    published pipx release's config.toml bindings: the release build has no
+    code path for the fork's relative, per-pane focus actions, so a single
+    mnemonic model is the only one both builds can share.
     """
-    from harlequin_vimnav import (
-        VIMNAV_APP_BINDINGS,
-        VIMNAV_CODE_EDITOR_BINDINGS,
-        VIMNAV_DATA_CATALOG_BINDINGS,
-        VIMNAV_RESULTS_VIEWER_BINDINGS,
-    )
+    from harlequin_vimnav import VIMNAV_APP_BINDINGS
 
     app_bound = {b.keys: b.action for b in VIMNAV_APP_BINDINGS}
-    assert "alt+h" not in app_bound
-    assert "alt+j" not in app_bound
-    assert "alt+k" not in app_bound
     assert app_bound["alt+p"] == "show_query_history"
-    assert app_bound["alt+c"] == "cancel_query"
-
-    editor_bound = {b.keys: b.action for b in VIMNAV_CODE_EDITOR_BINDINGS}
-    assert editor_bound["alt+h"] == "code_editor.focus_data_catalog"
-    assert editor_bound["alt+j"] == "code_editor.focus_results_viewer"
-
-    catalog_bound = {b.keys: b.action for b in VIMNAV_DATA_CATALOG_BINDINGS}
-    assert catalog_bound["alt+l"] == "data_catalog.focus_query_editor"
-    assert catalog_bound["alt+j"] == "data_catalog.focus_results_viewer"
-
-    results_bound = {b.keys: b.action for b in VIMNAV_RESULTS_VIEWER_BINDINGS}
-    assert results_bound["alt+h"] == "results_viewer.focus_data_catalog"
-    assert results_bound["alt+k"] == "results_viewer.focus_query_editor"
+    assert app_bound["alt+x"] == "cancel_query"
+    assert app_bound["alt+r"] == "focus_results_viewer"
+    assert app_bound["alt+e"] == "focus_query_editor"
+    assert app_bound["alt+c"] == "focus_data_catalog"
 
 
 def test_vimnav_binds_tab_switching() -> None:
@@ -181,12 +165,12 @@ async def test_vimnav_bracket_bindings_actually_switch_results_tabs(
 
 
 #######################################################
-# Relative pane navigation
+# Mnemonic pane switching
 #######################################################
 
 
 @pytest.mark.asyncio
-async def test_vimnav_alt_h_from_editor_focuses_data_catalog(
+async def test_vimnav_alt_r_from_editor_focuses_results_viewer(
     app_with_vimnav: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
 ) -> None:
@@ -196,35 +180,16 @@ async def test_vimnav_alt_h_from_editor_focuses_data_catalog(
         await wait_for_editor(pilot, app)
         await _settle_initial_editor_focus(pilot, app)
 
-        await pilot.press("alt+h")
-        await wait_for(
-            pilot,
-            lambda: app.data_catalog.has_focus_within,
-            description="alt+h from the Query Editor to focus the Data Catalog",
-        )
-
-
-@pytest.mark.asyncio
-async def test_vimnav_alt_j_from_editor_focuses_results_viewer(
-    app_with_vimnav: Harlequin,
-    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
-) -> None:
-    app = app_with_vimnav
-    async with app.run_test() as pilot:
-        await wait_for_workers(app)
-        await wait_for_editor(pilot, app)
-        await _settle_initial_editor_focus(pilot, app)
-
-        await pilot.press("alt+j")
+        await pilot.press("alt+r")
         await wait_for(
             pilot,
             lambda: app.results_viewer.has_focus_within,
-            description="alt+j from the Query Editor to focus the Results Viewer",
+            description="alt+r from the Query Editor to focus the Results Viewer",
         )
 
 
 @pytest.mark.asyncio
-async def test_vimnav_alt_l_from_catalog_focuses_query_editor(
+async def test_vimnav_alt_e_from_catalog_focuses_query_editor(
     app_with_vimnav: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
 ) -> None:
@@ -236,37 +201,16 @@ async def test_vimnav_alt_l_from_catalog_focuses_query_editor(
 
         app.data_catalog.focus()
         await pilot.pause()
-        await pilot.press("alt+l")
+        await pilot.press("alt+e")
         await wait_for(
             pilot,
             lambda: app.editor is not None and app.editor.has_focus_within,
-            description="alt+l from the Data Catalog to focus the Query Editor",
+            description="alt+e from the Data Catalog to focus the Query Editor",
         )
 
 
 @pytest.mark.asyncio
-async def test_vimnav_alt_j_from_catalog_focuses_results_viewer(
-    app_with_vimnav: Harlequin,
-    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
-) -> None:
-    app = app_with_vimnav
-    async with app.run_test() as pilot:
-        await wait_for_workers(app)
-        await wait_for_editor(pilot, app)
-        await _settle_initial_editor_focus(pilot, app)
-
-        app.data_catalog.focus()
-        await pilot.pause()
-        await pilot.press("alt+j")
-        await wait_for(
-            pilot,
-            lambda: app.results_viewer.has_focus_within,
-            description="alt+j from the Data Catalog to focus the Results Viewer",
-        )
-
-
-@pytest.mark.asyncio
-async def test_vimnav_alt_h_from_results_viewer_focuses_data_catalog(
+async def test_vimnav_alt_c_from_results_viewer_focuses_data_catalog(
     app_with_vimnav: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
 ) -> None:
@@ -278,32 +222,11 @@ async def test_vimnav_alt_h_from_results_viewer_focuses_data_catalog(
 
         app.results_viewer.focus()
         await pilot.pause()
-        await pilot.press("alt+h")
+        await pilot.press("alt+c")
         await wait_for(
             pilot,
             lambda: app.data_catalog.has_focus_within,
-            description="alt+h from the Results Viewer to focus the Data Catalog",
-        )
-
-
-@pytest.mark.asyncio
-async def test_vimnav_alt_k_from_results_viewer_focuses_query_editor(
-    app_with_vimnav: Harlequin,
-    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
-) -> None:
-    app = app_with_vimnav
-    async with app.run_test() as pilot:
-        await wait_for_workers(app)
-        await wait_for_editor(pilot, app)
-        await _settle_initial_editor_focus(pilot, app)
-
-        app.results_viewer.focus()
-        await pilot.pause()
-        await pilot.press("alt+k")
-        await wait_for(
-            pilot,
-            lambda: app.editor is not None and app.editor.has_focus_within,
-            description="alt+k from the Results Viewer to focus the Query Editor",
+            description="alt+c from the Results Viewer to focus the Data Catalog",
         )
 
 
