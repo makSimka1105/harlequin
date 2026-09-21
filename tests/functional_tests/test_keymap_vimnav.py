@@ -54,20 +54,22 @@ def test_vimnav_binds_tree_navigation() -> None:
     assert bound["l"] == "data_catalog.expand_node"
 
 
-def test_vimnav_binds_pane_switching() -> None:
-    """Pane switching is mnemonic and app-level (alt+r/e/c), matching the
-    published pipx release's config.toml bindings: the release build has no
-    code path for the fork's relative, per-pane focus actions, so a single
-    mnemonic model is the only one both builds can share.
+def test_vimnav_binds_app_actions() -> None:
+    """ctrl, not alt: with the kitty keyboard protocol on, alacritty reports
+    alt+<letter> as its own key event that textual never recombines, so
+    alt+ bindings silently never fire. Pane switching is mnemonic (e/r/d).
     """
     from harlequin_vimnav import VIMNAV_APP_BINDINGS
 
     app_bound = {b.keys: b.action for b in VIMNAV_APP_BINDINGS}
-    assert app_bound["alt+p"] == "show_query_history"
-    assert app_bound["alt+x"] == "cancel_query"
-    assert app_bound["alt+r"] == "focus_results_viewer"
-    assert app_bound["alt+e"] == "focus_query_editor"
-    assert app_bound["alt+c"] == "focus_data_catalog"
+    # focus_query_editor and focus_results_viewer are bound per pane, not here:
+    # vscode already owns ctrl+e and ctrl+r app-wide, and an app-level binding
+    # added later does not replace an earlier one. The press tests below cover
+    # them.
+    assert app_bound["ctrl+d"] == "focus_data_catalog"
+    assert app_bound["ctrl+shift+e,f4"] == "show_data_exporter"
+    assert app_bound["ctrl+shift+r,f3"] == "refresh_catalog"
+    assert app_bound["f7"] == "cancel_query"
 
 
 def test_vimnav_binds_tab_switching() -> None:
@@ -170,7 +172,7 @@ async def test_vimnav_bracket_bindings_actually_switch_results_tabs(
 
 
 @pytest.mark.asyncio
-async def test_vimnav_alt_r_from_editor_focuses_results_viewer(
+async def test_vimnav_ctrl_r_from_editor_focuses_results_viewer(
     app_with_vimnav: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
 ) -> None:
@@ -180,16 +182,16 @@ async def test_vimnav_alt_r_from_editor_focuses_results_viewer(
         await wait_for_editor(pilot, app)
         await _settle_initial_editor_focus(pilot, app)
 
-        await pilot.press("alt+r")
+        await pilot.press("ctrl+r")
         await wait_for(
             pilot,
             lambda: app.results_viewer.has_focus_within,
-            description="alt+r from the Query Editor to focus the Results Viewer",
+            description="ctrl+r from the Query Editor to focus the Results Viewer",
         )
 
 
 @pytest.mark.asyncio
-async def test_vimnav_alt_e_from_catalog_focuses_query_editor(
+async def test_vimnav_ctrl_e_from_catalog_focuses_query_editor(
     app_with_vimnav: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
 ) -> None:
@@ -201,16 +203,16 @@ async def test_vimnav_alt_e_from_catalog_focuses_query_editor(
 
         app.data_catalog.focus()
         await pilot.pause()
-        await pilot.press("alt+e")
+        await pilot.press("ctrl+e")
         await wait_for(
             pilot,
             lambda: app.editor is not None and app.editor.has_focus_within,
-            description="alt+e from the Data Catalog to focus the Query Editor",
+            description="ctrl+e from the Data Catalog to focus the Query Editor",
         )
 
 
 @pytest.mark.asyncio
-async def test_vimnav_alt_c_from_results_viewer_focuses_data_catalog(
+async def test_vimnav_ctrl_d_from_results_viewer_focuses_data_catalog(
     app_with_vimnav: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
 ) -> None:
@@ -222,11 +224,11 @@ async def test_vimnav_alt_c_from_results_viewer_focuses_data_catalog(
 
         app.results_viewer.focus()
         await pilot.pause()
-        await pilot.press("alt+c")
+        await pilot.press("ctrl+d")
         await wait_for(
             pilot,
             lambda: app.data_catalog.has_focus_within,
-            description="alt+c from the Results Viewer to focus the Data Catalog",
+            description="ctrl+d from the Results Viewer to focus the Data Catalog",
         )
 
 
