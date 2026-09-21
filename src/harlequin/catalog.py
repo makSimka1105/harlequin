@@ -58,6 +58,26 @@ CatalogSearchKind = Literal["relations", "columns", "all"]
 """
 
 
+@dataclass(frozen=True)
+class ForeignKeyEdge:
+    """One foreign key, as a link between two relations in the catalog.
+
+    Every identifier is spelled the way the catalog spells it, so an edge can be
+    matched against a `CatalogItem.qualified_identifier` without normalizing
+    anything. That is why adapters build these rather than core: only the
+    adapter knows how its own catalog quotes a name.
+
+    The two column tuples line up position by position -- `from_columns[i]`
+    references `to_columns[i]` -- because a key can span several columns.
+    """
+
+    constraint_name: str
+    from_relation: str
+    from_columns: tuple[str, ...]
+    to_relation: str
+    to_columns: tuple[str, ...]
+
+
 @dataclass
 class CatalogSearchResult:
     """
