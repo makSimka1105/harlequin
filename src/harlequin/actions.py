@@ -204,10 +204,10 @@ HARLEQUIN_ACTIONS = {
     ),
     # Scoped duplicates of app actions
     "code_editor.focus_results_viewer": Action(
-        target=EditorCollection, action="focus_results_viewer"
+        target=CodeEditor, action="focus_results_viewer"
     ),
     "code_editor.focus_data_catalog": Action(
-        target=EditorCollection, action="focus_data_catalog"
+        target=CodeEditor, action="focus_data_catalog"
     ),
     # TODO: ADD AUTOCOMPLETE BINDINGS
     #######################################################
@@ -227,6 +227,8 @@ HARLEQUIN_ACTIONS = {
     ),
     "data_catalog.select_cursor": Action(target=HarlequinTree, action="select_cursor"),
     "data_catalog.toggle_node": Action(target=HarlequinTree, action="toggle_node"),
+    "data_catalog.collapse_node": Action(target=HarlequinTree, action="collapse_node"),
+    "data_catalog.expand_node": Action(target=HarlequinTree, action="expand_node"),
     "data_catalog.cursor_up": Action(target=HarlequinTree, action="cursor_up"),
     "data_catalog.cursor_down": Action(target=HarlequinTree, action="cursor_down"),
     "data_catalog.cursor_next_container": Action(

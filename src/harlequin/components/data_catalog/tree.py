@@ -129,6 +129,36 @@ class HarlequinTree(Tree[TTreeNode], inherit_bindings=False):
     def action_hide_context_menu(self) -> None:
         self.post_message(self.HideContextMenu())
 
+    def action_collapse_node(self) -> None:
+        """`h`'s file-tree meaning: close what's open, or back out one level.
+
+        An already-collapsed node has nothing left to close, so the second
+        press of `h` a vim user expects to walk up the tree is this falling
+        through to its parent instead.
+        """
+        node = self.cursor_node
+        if node is None:
+            return
+        if node.is_expanded:
+            node.collapse()
+        elif node.parent is not None:
+            self.move_cursor_to_line(node.parent.line)
+
+    def action_expand_node(self) -> None:
+        """`l`'s file-tree meaning: open what's closed, or step into it.
+
+        Mirrors `action_collapse_node`: a node already open has nothing left
+        to expand, so the second press of `l` steps the cursor down into its
+        first child instead. A leaf has neither move, so it is a no-op.
+        """
+        node = self.cursor_node
+        if node is None or not node.allow_expand:
+            return
+        if not node.is_expanded:
+            node.expand()
+        elif node.children:
+            self.move_cursor_to_line(node.children[0].line)
+
     def action_cursor_next_container(self) -> None:
         """Move to the next node that can be expanded, skipping leaves.
 

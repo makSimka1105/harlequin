@@ -1,14 +1,38 @@
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 import pytest
 
 from harlequin.adapter import HarlequinAdapter
 from harlequin.app import Harlequin
+from harlequin.catalog import CatalogItem
 from harlequin.plugins import load_keymap_plugins
-from tests.functional_tests.helpers import wait_for_editor
+from tests.functional_tests.helpers import (
+    expand_catalog_node,
+    wait_for_catalog_tree,
+    wait_for_editor,
+)
 from tests.waiting import wait_for
+
+if TYPE_CHECKING:
+    from textual.pilot import Pilot
+
+
+async def _settle_initial_editor_focus(pilot: Pilot, app: Harlequin) -> None:
+    """Wait out the startup race before a test redirects focus itself.
+
+    Mounting the first buffer posts `EditorCollection.EditorSwitched`, whose
+    handler calls `self.editor.focus()`; that lands on the event loop at an
+    unpredictable point relative to a test's own `.focus()` call, so a test
+    that moves focus right after mounting can have it stolen back a beat
+    later. Waiting for the editor to hold focus first drains that race.
+    """
+    await wait_for(
+        pilot,
+        lambda: app.editor is not None and app.editor.has_focus_within,
+        description="the Query Editor to take its initial focus on startup",
+    )
 
 
 def test_vimnav_is_installed_as_a_keymap_plugin() -> None:
@@ -26,16 +50,40 @@ def test_vimnav_binds_tree_navigation() -> None:
     assert bound["k"] == "data_catalog.cursor_up"
     assert bound["J"] == "data_catalog.cursor_next_container"
     assert bound["K"] == "data_catalog.cursor_previous_container"
+    assert bound["h"] == "data_catalog.collapse_node"
+    assert bound["l"] == "data_catalog.expand_node"
 
 
 def test_vimnav_binds_pane_switching() -> None:
-    from harlequin_vimnav import VIMNAV_APP_BINDINGS
+    """Pane switching is relative, like `ctrl+w h` in vim: a direction means
+    the pane on that side of wherever the cursor already is, so each pane
+    gets its own bindings rather than one absolute set at the app level.
+    """
+    from harlequin_vimnav import (
+        VIMNAV_APP_BINDINGS,
+        VIMNAV_CODE_EDITOR_BINDINGS,
+        VIMNAV_DATA_CATALOG_BINDINGS,
+        VIMNAV_RESULTS_VIEWER_BINDINGS,
+    )
 
-    bound = {binding.keys: binding.action for binding in VIMNAV_APP_BINDINGS}
+    app_bound = {b.keys: b.action for b in VIMNAV_APP_BINDINGS}
+    assert "alt+h" not in app_bound
+    assert "alt+j" not in app_bound
+    assert "alt+k" not in app_bound
+    assert app_bound["alt+p"] == "show_query_history"
+    assert app_bound["alt+c"] == "cancel_query"
 
-    assert bound["alt+h"] == "focus_data_catalog"
-    assert bound["alt+j"] == "focus_results_viewer"
-    assert bound["alt+k"] == "focus_query_editor"
+    editor_bound = {b.keys: b.action for b in VIMNAV_CODE_EDITOR_BINDINGS}
+    assert editor_bound["alt+h"] == "code_editor.focus_data_catalog"
+    assert editor_bound["alt+j"] == "code_editor.focus_results_viewer"
+
+    catalog_bound = {b.keys: b.action for b in VIMNAV_DATA_CATALOG_BINDINGS}
+    assert catalog_bound["alt+l"] == "data_catalog.focus_query_editor"
+    assert catalog_bound["alt+j"] == "data_catalog.focus_results_viewer"
+
+    results_bound = {b.keys: b.action for b in VIMNAV_RESULTS_VIEWER_BINDINGS}
+    assert results_bound["alt+h"] == "results_viewer.focus_data_catalog"
+    assert results_bound["alt+k"] == "results_viewer.focus_query_editor"
 
 
 def test_vimnav_binds_tab_switching() -> None:
@@ -129,4 +177,279 @@ async def test_vimnav_bracket_bindings_actually_switch_results_tabs(
             pilot,
             lambda: app.results_viewer.active == "result-1",
             description="[ to switch back to the previous results tab",
+        )
+
+
+#######################################################
+# Relative pane navigation
+#######################################################
+
+
+@pytest.mark.asyncio
+async def test_vimnav_alt_h_from_editor_focuses_data_catalog(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        await pilot.press("alt+h")
+        await wait_for(
+            pilot,
+            lambda: app.data_catalog.has_focus_within,
+            description="alt+h from the Query Editor to focus the Data Catalog",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_alt_j_from_editor_focuses_results_viewer(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        await pilot.press("alt+j")
+        await wait_for(
+            pilot,
+            lambda: app.results_viewer.has_focus_within,
+            description="alt+j from the Query Editor to focus the Results Viewer",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_alt_l_from_catalog_focuses_query_editor(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        app.data_catalog.focus()
+        await pilot.pause()
+        await pilot.press("alt+l")
+        await wait_for(
+            pilot,
+            lambda: app.editor is not None and app.editor.has_focus_within,
+            description="alt+l from the Data Catalog to focus the Query Editor",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_alt_j_from_catalog_focuses_results_viewer(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        app.data_catalog.focus()
+        await pilot.pause()
+        await pilot.press("alt+j")
+        await wait_for(
+            pilot,
+            lambda: app.results_viewer.has_focus_within,
+            description="alt+j from the Data Catalog to focus the Results Viewer",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_alt_h_from_results_viewer_focuses_data_catalog(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        app.results_viewer.focus()
+        await pilot.pause()
+        await pilot.press("alt+h")
+        await wait_for(
+            pilot,
+            lambda: app.data_catalog.has_focus_within,
+            description="alt+h from the Results Viewer to focus the Data Catalog",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_alt_k_from_results_viewer_focuses_query_editor(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        app.results_viewer.focus()
+        await pilot.pause()
+        await pilot.press("alt+k")
+        await wait_for(
+            pilot,
+            lambda: app.editor is not None and app.editor.has_focus_within,
+            description="alt+k from the Results Viewer to focus the Query Editor",
+        )
+
+
+#######################################################
+# h/l on catalog tree nodes
+#######################################################
+
+
+@pytest.mark.asyncio
+async def test_vimnav_l_expands_a_collapsed_node(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+        tree = await wait_for_catalog_tree(pilot, app)
+
+        db_node = tree.root.children[0]
+        assert db_node.is_expanded is False
+
+        tree.focus()
+        await pilot.pause()
+        tree.move_cursor_to_line(db_node.line)
+        await pilot.press("l")
+        await wait_for(
+            pilot,
+            lambda: db_node.is_expanded,
+            description="l to expand the collapsed database node",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_l_on_an_expanded_node_steps_into_its_first_child(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+        tree = await wait_for_catalog_tree(pilot, app)
+
+        db_node = tree.root.children[0]
+        await expand_catalog_node(pilot, db_node)
+        assert db_node.children
+
+        tree.focus()
+        await pilot.pause()
+        tree.move_cursor_to_line(db_node.line)
+        first_child_line = db_node.children[0].line
+        await pilot.press("l")
+        await wait_for(
+            pilot,
+            lambda: tree.cursor_line == first_child_line,
+            description="l on an already-expanded node to step into its first child",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_l_on_a_leaf_node_does_nothing(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+        tree = await wait_for_catalog_tree(pilot, app)
+
+        leaf = tree.root.add_leaf(
+            "probe",
+            data=CatalogItem(
+                qualified_identifier='"probe"',
+                query_name='"probe"',
+                label="probe",
+                type_label="##",
+            ),
+        )
+        tree.focus()
+        await pilot.pause()
+        tree.move_cursor_to_line(leaf.line)
+        cursor_before = tree.cursor_line
+        assert cursor_before == leaf.line
+
+        await pilot.press("l")
+        await pilot.pause()
+
+        assert tree.cursor_line == cursor_before
+        assert leaf.is_expanded is False
+
+
+@pytest.mark.asyncio
+async def test_vimnav_h_collapses_an_expanded_node(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+        tree = await wait_for_catalog_tree(pilot, app)
+
+        db_node = tree.root.children[0]
+        await expand_catalog_node(pilot, db_node)
+        assert db_node.is_expanded is True
+
+        tree.focus()
+        await pilot.pause()
+        tree.move_cursor_to_line(db_node.line)
+        await pilot.press("h")
+        await wait_for(
+            pilot,
+            lambda: not db_node.is_expanded,
+            description="h to collapse the expanded database node",
+        )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_h_on_a_collapsed_node_moves_cursor_to_its_parent(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+        tree = await wait_for_catalog_tree(pilot, app)
+
+        db_node = tree.root.children[0]
+        await expand_catalog_node(pilot, db_node)
+        schema_node = db_node.children[0]
+        assert schema_node.is_expanded is False
+
+        tree.focus()
+        await pilot.pause()
+        tree.move_cursor_to_line(schema_node.line)
+        await pilot.press("h")
+        await wait_for(
+            pilot,
+            lambda: tree.cursor_line == db_node.line,
+            description="h on a collapsed node to move the cursor up to its parent",
         )
