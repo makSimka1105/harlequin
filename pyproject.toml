@@ -152,6 +152,7 @@ hsql = "harlequin.hsql:main"
 
 duckdb = "harlequin_duckdb:DuckDbAdapter"
 sqlite = "harlequin_sqlite:HarlequinSqliteAdapter"
+pgfk = "harlequin_pgfk:HarlequinPgFkAdapter"
 
 
 [project.entry-points."harlequin.keymap"]

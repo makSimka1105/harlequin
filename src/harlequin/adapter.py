@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
 
 from harlequin.autocomplete.completion import HarlequinCompletion
-from harlequin.catalog import Catalog, CatalogSearchKind, CatalogSearchResult
+from harlequin.catalog import (
+    Catalog,
+    CatalogSearchKind,
+    CatalogSearchResult,
+    ForeignKeyEdge,
+)
 from harlequin.options import HarlequinAdapterOption, HarlequinCopyFormat
 from harlequin.transaction_mode import HarlequinTransactionMode
 
@@ -137,6 +142,21 @@ class HarlequinConnection(ABC):
             optional functionality.
         """
         raise NotImplementedError
+
+    def get_foreign_keys(self) -> Sequence[ForeignKeyEdge]:
+        """
+        Returns every foreign key in the database, as edges between relations.
+
+        Unlike get_catalog(), this is not lazy: the Relations panel needs the
+        whole graph to answer "what can I reach from here", and the list is
+        small even where the catalog is enormous -- one row per constraint, not
+        per column.
+
+        An empty sequence is the honest answer both for a database with no
+        foreign keys and for an adapter that does not introspect them; the
+        panel then simply has nothing to show.
+        """
+        return ()
 
     def get_completions(self) -> list[HarlequinCompletion]:
         """
