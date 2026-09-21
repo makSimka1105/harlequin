@@ -29,8 +29,11 @@ VIMNAV_DATA_CATALOG_BINDINGS = [
     # vscode's j/k tab bindings are the only way to reach these actions, and
     # our own j/k win the binding walk on the focused catalog tree, so those
     # two would otherwise become unreachable by any key.
-    HarlequinKeyBinding("[", "data_catalog.previous_tab"),
-    HarlequinKeyBinding("]", "data_catalog.next_tab"),
+    # Textual names these keys left_square_bracket/right_square_bracket
+    # (see textual.keys._character_to_key); binding the literal "[" or "]"
+    # never matches a keypress, so the action silently never fires.
+    HarlequinKeyBinding("left_square_bracket", "data_catalog.previous_tab"),
+    HarlequinKeyBinding("right_square_bracket", "data_catalog.next_tab"),
 ]
 
 VIMNAV_RESULTS_VIEWER_BINDINGS = [
@@ -40,8 +43,11 @@ VIMNAV_RESULTS_VIEWER_BINDINGS = [
     HarlequinKeyBinding("l", "results_viewer.cursor_right"),
     # same story as the data catalog: vscode's only bindings for these two
     # are bare j/k, which our own j/k shadow on the focused results table.
-    HarlequinKeyBinding("[", "results_viewer.previous_tab"),
-    HarlequinKeyBinding("]", "results_viewer.next_tab"),
+    # Textual names these keys left_square_bracket/right_square_bracket
+    # (see textual.keys._character_to_key); binding the literal "[" or "]"
+    # never matches a keypress, so the action silently never fires.
+    HarlequinKeyBinding("left_square_bracket", "results_viewer.previous_tab"),
+    HarlequinKeyBinding("right_square_bracket", "results_viewer.next_tab"),
 ]
 
 VIMNAV = HarlequinKeyMap(
