@@ -10,24 +10,41 @@ from __future__ import annotations
 from harlequin.keymap import HarlequinKeyBinding, HarlequinKeyMap
 
 VIMNAV_APP_BINDINGS = [
-    # alt, not ctrl: ctrl+j is an alias of newline and ctrl+h of backspace,
-    # and textual has no chords, so ctrl+w h is not available either.
-    # Pane switching is mnemonic (alt+r/e/c, matching each pane's first
-    # letter) rather than relative like ctrl+w h in vim. The published pipx
-    # release cannot express the fork's relative, per-pane focus actions
-    # (they are code, not bindings it can configure), so it only ever has
-    # the unscoped focus_* actions bound directly here. One mnemonic model
-    # shared by both builds beats a better model that only the fork has;
-    # these mirror the owner's ~/.config/harlequin/config.toml bindings.
-    HarlequinKeyBinding("alt+p", "show_query_history"),
-    # alt+c now means "focus the catalog", so cancel moved off it to alt+x.
-    HarlequinKeyBinding("alt+x", "cancel_query"),
-    HarlequinKeyBinding("alt+r", "focus_results_viewer"),
-    HarlequinKeyBinding("alt+e", "focus_query_editor"),
-    HarlequinKeyBinding("alt+c", "focus_data_catalog"),
+    # ctrl, not alt: with the kitty keyboard protocol on, alacritty reports
+    # alt+<letter> as its own key event that textual never recombines with
+    # the following letter, so alt+ bindings silently never fire. Pane
+    # switching is mnemonic (e/r/d, matching each pane's first letter)
+    # rather than relative like ctrl+w h in vim -- textual has no chords, so
+    # that model is unavailable anyway.
+    # ctrl+e and ctrl+r are already bound app-wide by vscode
+    # (show_data_exporter, refresh_catalog). A later keymap does not replace an
+    # earlier binding on the same key -- bindings accumulate and the first match
+    # wins -- so the pane-switching versions have to be bound per pane, where
+    # the focused widget is consulted before the app.
+    # "d" for "data catalog": ctrl+c is taken by copy in all three panes, so
+    # it can't stand for "catalog" here.
+    HarlequinKeyBinding("ctrl+d", "focus_data_catalog"),
+    # The per-pane ctrl+e/ctrl+r bindings shadow vscode's
+    # show_data_exporter/refresh_catalog in every pane that has focus, so those
+    # rare actions get a second key here: ctrl+shift+<letter>, each with an
+    # f-key alternative so it stays reachable on a terminal that cannot report
+    # ctrl+shift+<letter> at all.
+    HarlequinKeyBinding("ctrl+shift+e,f4", "show_data_exporter"),
+    HarlequinKeyBinding("ctrl+shift+r,f3", "refresh_catalog"),
+    # cancel_query has no binding at all in the vscode keymap -- it only
+    # ever lived on our own alt+x -- so it just needs one key that works
+    # under any keyboard protocol.
+    HarlequinKeyBinding("f7", "cancel_query"),
+]
+
+VIMNAV_EDITOR_BINDINGS = [
+    HarlequinKeyBinding("ctrl+r", "code_editor.focus_results_viewer"),
+    HarlequinKeyBinding("ctrl+d", "code_editor.focus_data_catalog"),
 ]
 
 VIMNAV_DATA_CATALOG_BINDINGS = [
+    HarlequinKeyBinding("ctrl+e", "data_catalog.focus_query_editor"),
+    HarlequinKeyBinding("ctrl+r", "data_catalog.focus_results_viewer"),
     HarlequinKeyBinding("j", "data_catalog.cursor_down"),
     HarlequinKeyBinding("k", "data_catalog.cursor_up"),
     HarlequinKeyBinding("J", "data_catalog.cursor_next_container"),
@@ -45,6 +62,8 @@ VIMNAV_DATA_CATALOG_BINDINGS = [
 ]
 
 VIMNAV_RESULTS_VIEWER_BINDINGS = [
+    HarlequinKeyBinding("ctrl+e", "results_viewer.focus_query_editor"),
+    HarlequinKeyBinding("ctrl+d", "results_viewer.focus_data_catalog"),
     HarlequinKeyBinding("j", "results_viewer.cursor_down"),
     HarlequinKeyBinding("k", "results_viewer.cursor_up"),
     HarlequinKeyBinding("h", "results_viewer.cursor_left"),
@@ -62,6 +81,7 @@ VIMNAV = HarlequinKeyMap(
     name="vimnav",
     bindings=[
         *VIMNAV_APP_BINDINGS,
+        *VIMNAV_EDITOR_BINDINGS,
         *VIMNAV_DATA_CATALOG_BINDINGS,
         *VIMNAV_RESULTS_VIEWER_BINDINGS,
     ],
