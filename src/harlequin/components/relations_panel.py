@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 from rich.style import Style
 from rich.text import Text
+from textual.binding import Binding
+from textual.message import Message
 from textual.widgets import Tree
 
 from harlequin.relations import RelationGraph, RelationLink, Route, split_identifier
@@ -24,7 +26,7 @@ DIRECT_LABEL = "DIRECT"
 ROUTED_LABEL = "FURTHER"
 
 
-class RelationsPanel(Tree[str], inherit_bindings=False):
+class RelationsPanel(Tree[str]):
     """A tree of the foreign keys around one catalog item.
 
     Node data is the qualified identifier the row stands for, or None for the
@@ -33,6 +35,25 @@ class RelationsPanel(Tree[str], inherit_bindings=False):
     """
 
     BORDER_TITLE = "Relations"
+
+    # This widget is not in any keymap: it is the fork's own, and vscode's
+    # bindings say nothing about it. Vim keys are spelled out here so they work
+    # whatever keymap is loaded, alongside the arrow keys Tree already brings.
+    BINDINGS = [
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("h", "collapse_or_parent", "Collapse", show=False),
+        Binding("l", "toggle_node", "Expand", show=False),
+        Binding("enter", "insert_path", "Insert Path", show=True),
+        Binding("f", "toggle_routes", "Toggle Routes", show=True),
+    ]
+
+    class PathRequested(Message):
+        """Someone chose a row that names a catalog item worth inserting."""
+
+        def __init__(self, qualified_identifier: str) -> None:
+            self.qualified_identifier = qualified_identifier
+            super().__init__()
 
     show_routes = True
     """Whether the FURTHER section is drawn. Toggled by a binding."""
@@ -43,6 +64,25 @@ class RelationsPanel(Tree[str], inherit_bindings=False):
         self.guide_depth = 2
         self.graph = RelationGraph(())
         self._subject: str | None = None
+
+    def action_insert_path(self) -> None:
+        node = self.cursor_node
+        if node is not None and node.data is not None:
+            self.post_message(self.PathRequested(node.data))
+
+    def action_collapse_or_parent(self) -> None:
+        """Collapse, or step out -- the same `h` the Data Catalog tree uses."""
+        node = self.cursor_node
+        if node is None:
+            return
+        if node.is_expanded:
+            node.collapse()
+        elif node.parent is not None and node.parent is not self.root:
+            self.move_cursor_to_line(node.parent.line)
+
+    def action_toggle_routes(self) -> None:
+        self.show_routes = not self.show_routes
+        self.show(self._subject)
 
     def update_graph(self, graph: RelationGraph) -> None:
         self.graph = graph
@@ -122,7 +162,13 @@ class RelationsPanel(Tree[str], inherit_bindings=False):
                     _short(link.far_relation),
                     (f".{', '.join(link.far_columns)}", _COLUMN),
                 ),
-                data=link.far_relation,
+                # a single-column key names one column to insert; a composite
+                # one names no single thing, so it falls back to the relation
+                data=(
+                    f'{link.far_relation}."{link.far_columns[0]}"'
+                    if len(link.far_columns) == 1
+                    else link.far_relation
+                ),
             )
 
     def _add_routes(self, parent: TreeNode[str], routes: list[Route]) -> None:

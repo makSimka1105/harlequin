@@ -396,6 +396,7 @@ class Harlequin(AppBase):
         self._last_checkpointed_cache: Cache | None = None
         """What the recovery file holds, so an idle session stops rewriting it."""
         self.connection: HarlequinConnection | None = None
+        self.catalog: Catalog | None = None
         self.reserved_words: frozenset[str] = DEFAULT_RESERVED
         self._recovery_lock = threading.Lock()
         """Held across reopening the tunnel and the connection through it.
@@ -922,6 +923,7 @@ class Harlequin(AppBase):
 
     @on(NewCatalog)
     def handle_new_catalog(self, message: NewCatalog) -> None:
+        self.catalog = message.catalog
         self.data_catalog.update_database_tree(message.catalog)
         self.update_completers(message.catalog)
 
@@ -1883,10 +1885,68 @@ class Harlequin(AppBase):
     def update_relations_panel(self, message: RelationsReady) -> None:
         self.relations_panel.update_graph(message.graph)
 
+    @on(RelationsPanel.PathRequested)
+    def insert_relation_path(self, message: RelationsPanel.PathRequested) -> None:
+        self.resolve_and_insert_path(message.qualified_identifier)
+
+    @work(thread=True, exclusive=True, exit_on_error=False, group="relation_paths")
+    def resolve_and_insert_path(self, qualified_identifier: str) -> None:
+        """Turn an identifier from the Relations panel into text for the editor.
+
+        The panel knows identifiers, `path_for` needs catalog items, and the
+        catalog loads lazily -- so the item may not exist yet. Finding it can
+        query the database, which is why this runs off the event loop.
+        """
+        found = self._find_catalog_item(qualified_identifier)
+        if found is None:
+            self.notify(
+                f"{qualified_identifier} is not in the catalog.", severity="warning"
+            )
+            return
+        item, owner = found
+        text = path_for(
+            item=item,
+            owner=owner,
+            scope=read_scope(self._scope_text()),
+            reserved=self.reserved_words,
+        )
+        self.post_message(HarlequinDriver.InsertTextAtSelection(text=text))
+
+    def _find_catalog_item(
+        self, qualified_identifier: str
+    ) -> tuple[CatalogItem, CatalogItem | None] | None:
+        """Locate an item and its owner, fetching only what the search needs.
+
+        Relations are searched first, without touching their columns; a column
+        is then looked up inside the one relation that could hold it. Fetching
+        every relation's columns to find one would cost a query per table.
+        """
+        if self.catalog is None:
+            return None
+
+        for database in self.catalog.items:
+            for schema in _catalog_children(database):
+                for relation in _catalog_children(schema):
+                    if relation.qualified_identifier == qualified_identifier:
+                        return relation, schema
+                    if not qualified_identifier.startswith(
+                        f"{relation.qualified_identifier}."
+                    ):
+                        continue
+                    for column in _catalog_children(relation):
+                        if column.qualified_identifier == qualified_identifier:
+                            return column, relation
+        return None
+
     @on(HarlequinTree.NodeHighlighted)
     def show_relations_for_node(
         self, message: HarlequinTree.NodeHighlighted[CatalogItem]
     ) -> None:
+        # The panel is a Tree too, and Tree.NodeHighlighted is the same message
+        # class for every tree in the app -- including the panel's own cursor
+        # moves, which would otherwise make it redraw itself into emptiness.
+        if message.control is not self.data_catalog.database_tree:
+            return
         item = message.node.data
         self.relations_panel.show(
             item.qualified_identifier if isinstance(item, CatalogItem) else None
@@ -2051,3 +2111,11 @@ class Harlequin(AppBase):
             # for some reason this doesn't exit right away...
             keymap = None
         return keymap
+
+
+def _catalog_children(item: CatalogItem) -> Sequence[CatalogItem]:
+    """An item's children, fetching them if the catalog has not yet."""
+    if item.children:
+        return item.children
+    fetch = getattr(item, "fetch_children", None)
+    return fetch() if fetch is not None else ()
