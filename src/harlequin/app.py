@@ -48,6 +48,7 @@ from harlequin.bindings import bind
 from harlequin.catalog import (
     Catalog,
     CatalogItem,
+    CatalogSearchResult,
     Interaction,
     TCatalogItem_contra,
 )
@@ -230,6 +231,19 @@ class TransactionModeChanged(Message):
         self.new_mode = new_mode
 
 
+class CatalogSearched(Message):
+    def __init__(self, term: str, results: list[CatalogSearchResult]) -> None:
+        self.term = term
+        self.results = results
+        super().__init__()
+
+
+class CatalogSearchError(Message):
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        super().__init__()
+
+
 class RelationsReady(Message):
     def __init__(self, graph: RelationGraph) -> None:
         self.graph = graph
@@ -397,6 +411,7 @@ class Harlequin(AppBase):
         """What the recovery file holds, so an idle session stops rewriting it."""
         self.connection: HarlequinConnection | None = None
         self.catalog: Catalog | None = None
+        self._pending_filter: Timer | None = None
         self.reserved_words: frozenset[str] = DEFAULT_RESERVED
         self._recovery_lock = threading.Lock()
         """Held across reopening the tunnel and the connection through it.
@@ -604,6 +619,15 @@ class Harlequin(AppBase):
             # recycle message while editor loads
             callback = partial(self.post_message, message)
             self.set_timer(delay=0.1, callback=callback)
+            return
+        node = message.node
+        if node.tree is self.data_catalog.filtered_tree and isinstance(
+            node.data, CatalogItem
+        ):
+            # A search result's ancestors are labels, not catalog items, so the
+            # node cannot say what owns it. The resolver finds the real pair in
+            # the catalog -- which may query the database, hence the worker.
+            self.resolve_and_insert_path(node.data.qualified_identifier)
             return
         self.editor.insert_text_at_selection(text=self._insert_text_for(message))
         self.editor.focus()
@@ -1884,6 +1908,49 @@ class Harlequin(AppBase):
     @on(RelationsReady)
     def update_relations_panel(self, message: RelationsReady) -> None:
         self.relations_panel.update_graph(message.graph)
+
+    @on(DataCatalog.FilterChanged)
+    def filter_catalog(self, message: DataCatalog.FilterChanged) -> None:
+        """Search for what was typed, once typing pauses.
+
+        Every keystroke would otherwise be a round trip; a quarter second is
+        long enough to swallow a burst of typing and short enough to feel
+        immediate. A newer term simply replaces the pending one.
+        """
+        message.stop()
+        if self._pending_filter is not None:
+            self._pending_filter.stop()
+        self._pending_filter = self.set_timer(
+            delay=0.25, callback=partial(self.search_catalog, message.term)
+        )
+
+    @work(thread=True, exclusive=True, exit_on_error=False, group="catalog_search")
+    def search_catalog(self, term: str) -> None:
+        if self.connection is None:
+            return
+        if not term.strip():
+            self.post_message(CatalogSearched(term=term, results=[]))
+            return
+        try:
+            results = self.connection.search_catalog(term)
+        except NotImplementedError:
+            self.notify(
+                "This adapter cannot search the catalog.", severity="warning"
+            )
+            return
+        except Exception as e:
+            self.post_message(CatalogSearchError(error=e))
+            return
+        self.post_message(CatalogSearched(term=term, results=results))
+
+    @on(CatalogSearched)
+    def show_filtered_catalog(self, message: CatalogSearched) -> None:
+        self.data_catalog.filtered_tree.show_results(message.results)
+        self.data_catalog.report_matches(len(message.results), message.term)
+
+    @on(CatalogSearchError)
+    def report_catalog_search_error(self, message: CatalogSearchError) -> None:
+        self.notify(str(message.error), severity="error")
 
     @on(RelationsPanel.PathRequested)
     def insert_relation_path(self, message: RelationsPanel.PathRequested) -> None:

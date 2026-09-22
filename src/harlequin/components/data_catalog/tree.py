@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Generic, TypeVar, Union
 
+from rich.style import Style
 from rich.text import Text
 from textual.events import Click
 from textual.message import Message
@@ -66,6 +67,13 @@ class HarlequinTree(Tree[TTreeNode], inherit_bindings=False):
 
     class HideContextMenu(Message):
         pass
+
+    def _build_item_label(self, label: str, type_label: str) -> Text:
+        """A node's label: its name, then its type in the muted type colour."""
+        type_label_style = self.get_component_rich_style("harlequin-tree--type-label")
+        return Text.assemble(
+            label, " ", (type_label, Style(color=type_label_style.color))
+        )
 
     def on_focus(self) -> None:
         if self.cursor_line < 0:

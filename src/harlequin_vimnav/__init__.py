@@ -57,6 +57,9 @@ VIMNAV_DATA_CATALOG_BINDINGS = [
     # Textual names these keys left_square_bracket/right_square_bracket
     # (see textual.keys._character_to_key); binding the literal "[" or "]"
     # never matches a keypress, so the action silently never fires.
+    # "/" for search, as in vim and every pager; escape backs out of it.
+    HarlequinKeyBinding("slash", "data_catalog.show_filter"),
+    HarlequinKeyBinding("escape", "data_catalog.hide_filter"),
     HarlequinKeyBinding("left_square_bracket", "data_catalog.previous_tab"),
     HarlequinKeyBinding("right_square_bracket", "data_catalog.next_tab"),
 ]

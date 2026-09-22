@@ -10,7 +10,9 @@ from textual.css.query import InvalidQueryFormat, NoMatches
 from textual.message import Message
 from textual.widgets import (
     DirectoryTree,
+    Input,
     OptionList,
+    Static,
     TabbedContent,
     TabPane,
     Tabs,
@@ -20,6 +22,7 @@ from textual.widgets._tree import TreeNode
 from harlequin.catalog import Catalog, CatalogItem, InteractiveCatalogItem
 from harlequin.catalog_cache import CatalogCache
 from harlequin.components.data_catalog.database_tree import DatabaseTree
+from harlequin.components.data_catalog.filtered_tree import FilteredTree
 from harlequin.components.data_catalog.s3_tree import S3Tree as S3Tree
 from harlequin.components.data_catalog.tree import HarlequinTree as HarlequinTree
 from harlequin.messages import WidgetMounted
@@ -128,12 +131,28 @@ class DataCatalog(TabbedContent, can_focus=True):
         self.show_files = show_files
         self.show_s3 = show_s3
 
+    class FilterChanged(Message):
+        """The filter box holds a new term, which someone has to go search for."""
+
+        def __init__(self, term: str) -> None:
+            self.term = term
+            super().__init__()
+
     def on_mount(self) -> None:
         self.database_tree = DatabaseTree()
+        self.filtered_tree = FilteredTree()
+        self.filter_input = Input(placeholder="filter…", id="catalog_filter")
+        self.filter_status = Static("", id="catalog_filter_status")
         self.database_context_menu = ContextMenu()
-        self.add_pane(
-            TabPane("Databases", self.database_tree, self.database_context_menu)
+        self.database_pane = TabPane(
+                "Databases",
+                self.filter_input,
+                self.database_tree,
+                self.filtered_tree,
+                self.filter_status,
+                self.database_context_menu,
         )
+        self.add_pane(self.database_pane)
         if self.show_files is not None:
             self.file_tree: FileTree | None = FileTree(path=self.show_files)
             self.add_pane(TabPane("Files", self.file_tree))
@@ -164,6 +183,16 @@ class DataCatalog(TabbedContent, can_focus=True):
         self.post_message(WidgetMounted(widget=self))
 
     def on_focus(self) -> None:
+        """Hand focus to the pane's tree, not merely to its first child.
+
+        The Databases pane holds the filter box and its results as well as the
+        tree, and the filter box comes first; focusing whatever is first would
+        land on a hidden Input and leave every tree binding dead.
+        """
+        if self.active_pane is self.database_pane:
+            target = self.filtered_tree if self.filtering else self.database_tree
+            target.focus()
+            return
         try:
             active_widget = self.query_one(f"#{self.active}").children[0]
         except (NoMatches, InvalidQueryFormat):
@@ -186,6 +215,42 @@ class DataCatalog(TabbedContent, can_focus=True):
     ) -> None:
         event.stop()
         self.database_context_menu.reload(node=event.node)
+
+    @property
+    def filtering(self) -> bool:
+        return self.has_class("filtering")
+
+    def action_start_filtering(self) -> None:
+        self.add_class("filtering")
+        self.filter_input.focus()
+        self.post_message(self.FilterChanged(term=self.filter_input.value))
+
+    def action_stop_filtering(self) -> None:
+        """Put the real tree back, exactly as it was left.
+
+        It was never rebuilt -- only hidden -- so its expansions and its cursor
+        are still where the search interrupted them.
+        """
+        self.remove_class("filtering")
+        self.filter_input.value = ""
+        self.database_tree.focus()
+
+    @on(Input.Changed, "#catalog_filter")
+    def request_filter(self, event: Input.Changed) -> None:
+        event.stop()
+        self.post_message(self.FilterChanged(term=event.value))
+
+    def report_matches(self, count: int, term: str) -> None:
+        if not term.strip():
+            self.filter_status.update("type to filter · esc to cancel")
+        else:
+            match = "match" if count == 1 else "matches"
+            self.filter_status.update(f"{count} {match} · esc to cancel")
+
+    @on(Input.Submitted, "#catalog_filter")
+    def focus_results(self, event: Input.Submitted) -> None:
+        event.stop()
+        self.filtered_tree.focus()
 
     def update_database_tree(self, catalog: Catalog) -> None:
         self.database_tree.catalog = catalog

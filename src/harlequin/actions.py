@@ -248,6 +248,10 @@ HARLEQUIN_ACTIONS = {
         target=HarlequinTree, action="show_context_menu", show=True
     ),
     "data_catalog.hide_context_menu": Action(target=ContextMenu, action="hide"),
+    "data_catalog.show_filter": Action(
+        target=DataCatalog, action="start_filtering", description="Filter", show=True
+    ),
+    "data_catalog.hide_filter": Action(target=DataCatalog, action="stop_filtering"),
     #######################################################
     # ResultsViewer ACTIONS
     #######################################################
