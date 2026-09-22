@@ -158,9 +158,10 @@ async def test_data_catalog(
         await pilot.press("space")
         await pilot.press("down")
         await pilot.press("down")
-        await pilot.press("enter")
         await pilot.pause()
 
+        # no enter here: on a leaf it now inserts the path and moves focus to
+        # the editor, where the ctrl+c below would copy the wrong thing
         col_node = catalog.database_tree.cursor_node
         assert col_node is not None
         assert col_node.data is not None

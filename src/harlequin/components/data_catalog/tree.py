@@ -120,6 +120,23 @@ class HarlequinTree(Tree[TTreeNode], inherit_bindings=False):
             if node is not None and isinstance(node.data, CatalogItem):
                 self.post_message(self.ShowContextMenu(node=node))
 
+    def action_select_cursor(self) -> None:
+        """Enter: open what can be opened, insert what cannot.
+
+        A column has nothing to expand, so expanding it -- what the inherited
+        action does -- is a keypress that does nothing. Inserting its path is
+        the only useful meaning enter has there, and it matches the Relations
+        panel, where enter inserts too. On a database, schema or table, enter
+        still expands, which is what the arrow keys' neighbour should do.
+        """
+        node = self.cursor_node
+        if node is None:
+            return
+        if node.allow_expand:
+            node.toggle()
+            return
+        self.post_message(self.NodeSubmitted(node=node))
+
     def action_submit(self) -> None:
         if self.cursor_node is not None:
             self.post_message(self.NodeSubmitted(node=self.cursor_node))
