@@ -124,11 +124,6 @@ class DatabaseTree(HarlequinTree[CatalogItem], inherit_bindings=False):
         self._schedule_prefetch_scan()
         self.post_message(WidgetMounted(widget=self))
 
-    def _build_item_label(self, label: str, type_label: str) -> Text:
-        type_label_style = self.get_component_rich_style("harlequin-tree--type-label")
-        type_label_fg_style = Style(color=type_label_style.color)
-        return Text.assemble(label, " ", (type_label, type_label_fg_style))
-
     async def watch_catalog(self, catalog: Catalog | None) -> None:
         """Watch for changes to the `catalog` of the database tree.
 

@@ -820,7 +820,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -1600,16 +1600,16 @@ wheels = [
 
 [[package]]
 name = "harlequin-postgres"
-version = "1.3.1"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "duckdb", marker = "python_full_version >= '3.14'" },
     { name = "harlequin" },
     { name = "psycopg", extra = ["binary", "pool"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/27/18e42a6a524ed28dc94aa26199fe6766f95073c246517e35f157098e5743/harlequin_postgres-1.3.1.tar.gz", hash = "sha256:25dcb73e97cdfb17c3bcfdc3146418a98ff11ce68f6a51fb1b25322eac9d5223", size = 21489, upload-time = "2026-04-20T00:58:29.702Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/45/d0cfcaf40f57ff544047ca884389bedfc6317e60e4c6310971e89b638faf/harlequin_postgres-1.5.0.tar.gz", hash = "sha256:df245e8079b3c6882709be3249e10b8d3127c245d115f6f428889245b3fbaea0", size = 26251, upload-time = "2026-09-15T00:04:40.097Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/3b/89d7a606121d0ff8b7b4e6a6bd40da29b6ae5b25bb89a925c8ce77ea8e6a/harlequin_postgres-1.3.1-py3-none-any.whl", hash = "sha256:0e8a71ddf9d0cde82c7a09b0b0b883b7fa782fd76dd7ad3f5920fbba70a8e45d", size = 21015, upload-time = "2026-04-20T00:58:28.259Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/8e/184d21bd21325c7d9134861a739f7376ca1b8e37ac94d0a6d7cea33a5a99/harlequin_postgres-1.5.0-py3-none-any.whl", hash = "sha256:80b9fc67291c76d619bc71129f9cb78d8b082b393ac81da782755eb289faca04", size = 25365, upload-time = "2026-09-15T00:04:38.833Z" },
 ]
 
 [[package]]

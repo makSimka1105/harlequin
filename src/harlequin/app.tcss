@@ -719,3 +719,44 @@ RelationsPanel {
         background-tint: $background;
     }
 }
+
+/* The filter box and its results only exist while filtering; the real tree is
+   hidden rather than rebuilt, so escaping restores it untouched. */
+DataCatalog #catalog_filter,
+DataCatalog FilteredTree {
+    display: none;
+}
+
+DataCatalog.filtering #catalog_filter {
+    display: block;
+    dock: top;
+    height: 3;
+    border: none;
+    background: $background;
+}
+
+DataCatalog.filtering FilteredTree {
+    display: block;
+    background: $background;
+    padding: 0 1;
+    &:focus {
+        background-tint: $background;
+    }
+}
+
+DataCatalog.filtering DatabaseTree {
+    display: none;
+}
+
+DataCatalog #catalog_filter_status {
+    display: none;
+}
+
+DataCatalog.filtering #catalog_filter_status {
+    display: block;
+    dock: bottom;
+    height: 1;
+    padding: 0 1;
+    color: $foreground-muted;
+    background: $background;
+}
