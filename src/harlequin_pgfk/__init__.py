@@ -31,7 +31,8 @@ select
     array_agg(src_att.attname order by cols.ord),
     tgt_ns.nspname,
     tgt.relname,
-    array_agg(tgt_att.attname order by cols.ord)
+    array_agg(tgt_att.attname order by cols.ord),
+    current_database()
 from pg_catalog.pg_constraint con
 join pg_catalog.pg_class src on src.oid = con.conrelid
 join pg_catalog.pg_namespace src_ns on src_ns.oid = src.relnamespace
@@ -45,6 +46,7 @@ join pg_catalog.pg_attribute tgt_att
     on tgt_att.attrelid = con.confrelid and tgt_att.attnum = cols.tgt_attnum
 where
     con.contype = 'f'
+    and con.conparentid = 0
     and src_ns.nspname not in ('pg_catalog', 'information_schema')
 group by 1, 2, 3, 5, 6
 order by 2, 3, 1
@@ -54,6 +56,10 @@ order by 2, 3, 1
 `unnest(conkey, confkey) with ordinality` walks the two column-number arrays in
 step, so a key spanning several columns keeps its referencing and referenced
 columns paired and in the order the constraint declares them.
+
+`conparentid = 0` keeps only the key as declared: on a partitioned table
+Postgres clones it onto every partition, and those clones are not joins anyone
+writes by hand.
 """
 
 
@@ -67,8 +73,9 @@ class HarlequinPgFkConnection(HarlequinPostgresConnection):
         """Read the connected database's foreign keys.
 
         Only that one database: a Postgres connection cannot see another's
-        catalog, while Harlequin's tree may list several. Relations in the other
-        databases simply have no edges, which is the same as having none.
+        catalog, while Harlequin's tree may list several. Identifiers leave the
+        database out, so each edge names it; otherwise `public.users` in another
+        database would borrow this one's keys.
         """
         with self.pool.connection() as conn, conn.cursor() as cur:
             cur.execute(FOREIGN_KEYS_SQL)
@@ -81,6 +88,7 @@ class HarlequinPgFkConnection(HarlequinPostgresConnection):
                 from_columns=tuple(from_columns),
                 to_relation=_identifier(to_schema, to_table),
                 to_columns=tuple(to_columns),
+                database=database,
             )
             for (
                 name,
@@ -90,6 +98,7 @@ class HarlequinPgFkConnection(HarlequinPostgresConnection):
                 to_schema,
                 to_table,
                 to_columns,
+                database,
             ) in rows
         ]
 

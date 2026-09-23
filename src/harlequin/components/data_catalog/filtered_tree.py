@@ -55,12 +55,19 @@ class FilteredTree(HarlequinTree[CatalogItem], inherit_bindings=False):
                 path = result.parents[: depth + 1]
                 branch = branches.get(path)
                 if branch is None:
+                    parent.allow_expand = True
                     branch = parent.add(path[-1], data=None, expand=True)
                     branches[path] = branch
                 parent = branch
             label = self._build_item_label(result.item.label, result.item.type_label)
-            if result.item.children or not getattr(result.item, "loaded", True):
-                node = parent.add(label, data=result.item, expand=False)
-                branches[(*result.parents, result.item.label)] = node
+            path = (*result.parents, result.item.label)
+            node = branches.get(path)
+            if node is None:
+                parent.allow_expand = True
+                node = parent.add(
+                    label, data=result.item, expand=True, allow_expand=False
+                )
+                branches[path] = node
             else:
-                parent.add_leaf(label, data=result.item)
+                node.data = result.item
+                node.set_label(label)
