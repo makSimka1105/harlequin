@@ -145,12 +145,12 @@ class DataCatalog(TabbedContent, can_focus=True):
         self.filter_status = Static("", id="catalog_filter_status")
         self.database_context_menu = ContextMenu()
         self.database_pane = TabPane(
-                "Databases",
-                self.filter_input,
-                self.database_tree,
-                self.filtered_tree,
-                self.filter_status,
-                self.database_context_menu,
+            "Databases",
+            self.filter_input,
+            self.database_tree,
+            self.filtered_tree,
+            self.filter_status,
+            self.database_context_menu,
         )
         self.add_pane(self.database_pane)
         if self.show_files is not None:

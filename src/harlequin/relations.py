@@ -67,7 +67,9 @@ class RelationGraph:
 
     def __init__(self, edges: Iterable[ForeignKeyEdge]) -> None:
         self._links: dict[str, list[RelationLink]] = {}
+        self._databases: set[str | None] = set()
         for edge in edges:
+            self._databases.add(edge.database)
             self._add(RelationLink(edge=edge, outgoing=True))
             self._add(RelationLink(edge=edge, outgoing=False))
 
@@ -76,6 +78,9 @@ class RelationGraph:
 
     def __bool__(self) -> bool:
         return bool(self._links)
+
+    def covers(self, database: str | None) -> bool:
+        return None in self._databases or database in self._databases
 
     def links_for_relation(self, relation: str) -> list[RelationLink]:
         """Every key touching this relation, in a stable order."""

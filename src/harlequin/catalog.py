@@ -76,6 +76,9 @@ class ForeignKeyEdge:
     from_columns: tuple[str, ...]
     to_relation: str
     to_columns: tuple[str, ...]
+    database: str | None = None
+    """The label of the top-level catalog item the key lives under, for adapters
+    whose identifiers leave the database out. None matches every database."""
 
 
 @dataclass

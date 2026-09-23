@@ -50,6 +50,7 @@ from harlequin.catalog import (
     CatalogItem,
     CatalogSearchResult,
     Interaction,
+    InteractiveCatalogItem,
     TCatalogItem_contra,
 )
 from harlequin.catalog_cache import (
@@ -116,6 +117,7 @@ from harlequin.windows_timezone import (
 
 if TYPE_CHECKING:
     from textual.await_complete import AwaitComplete
+    from textual.widgets._tree import TreeNode
 
     from harlequin.keymap import HarlequinKeyMap
     from harlequin.ssh import SshTunnel
@@ -627,7 +629,9 @@ class Harlequin(AppBase):
             # A search result's ancestors are labels, not catalog items, so the
             # node cannot say what owns it. The resolver finds the real pair in
             # the catalog -- which may query the database, hence the worker.
-            self.resolve_and_insert_path(node.data.qualified_identifier)
+            self.resolve_and_insert_path(
+                node.data.qualified_identifier, _database_of(node)
+            )
             return
         self.editor.insert_text_at_selection(text=self._insert_text_for(message))
         self.editor.focus()
@@ -1934,9 +1938,7 @@ class Harlequin(AppBase):
         try:
             results = self.connection.search_catalog(term)
         except NotImplementedError:
-            self.notify(
-                "This adapter cannot search the catalog.", severity="warning"
-            )
+            self.notify("This adapter cannot search the catalog.", severity="warning")
             return
         except Exception as e:
             self.post_message(CatalogSearchError(error=e))
@@ -1945,6 +1947,10 @@ class Harlequin(AppBase):
 
     @on(CatalogSearched)
     def show_filtered_catalog(self, message: CatalogSearched) -> None:
+        # a cancelled thread worker still finishes its query, so an older search
+        # can land after a newer one
+        if message.term != self.data_catalog.filter_input.value:
+            return
         self.data_catalog.filtered_tree.show_results(message.results)
         self.data_catalog.report_matches(len(message.results), message.term)
 
@@ -1954,17 +1960,19 @@ class Harlequin(AppBase):
 
     @on(RelationsPanel.PathRequested)
     def insert_relation_path(self, message: RelationsPanel.PathRequested) -> None:
-        self.resolve_and_insert_path(message.qualified_identifier)
+        self.resolve_and_insert_path(message.qualified_identifier, message.database)
 
     @work(thread=True, exclusive=True, exit_on_error=False, group="relation_paths")
-    def resolve_and_insert_path(self, qualified_identifier: str) -> None:
+    def resolve_and_insert_path(
+        self, qualified_identifier: str, database: str | None
+    ) -> None:
         """Turn an identifier from the Relations panel into text for the editor.
 
         The panel knows identifiers, `path_for` needs catalog items, and the
         catalog loads lazily -- so the item may not exist yet. Finding it can
         query the database, which is why this runs off the event loop.
         """
-        found = self._find_catalog_item(qualified_identifier)
+        found = self._find_catalog_item(qualified_identifier, database)
         if found is None:
             self.notify(
                 f"{qualified_identifier} is not in the catalog.", severity="warning"
@@ -1980,7 +1988,7 @@ class Harlequin(AppBase):
         self.post_message(HarlequinDriver.InsertTextAtSelection(text=text))
 
     def _find_catalog_item(
-        self, qualified_identifier: str
+        self, qualified_identifier: str, database: str | None
     ) -> tuple[CatalogItem, CatalogItem | None] | None:
         """Locate an item and its owner, fetching only what the search needs.
 
@@ -1991,19 +1999,31 @@ class Harlequin(AppBase):
         if self.catalog is None:
             return None
 
-        for database in self.catalog.items:
-            for schema in _catalog_children(database):
-                for relation in _catalog_children(schema):
+        for database_item in self.catalog.items:
+            if database is not None and database_item.label != database:
+                continue
+            for schema in self._children_of(database_item):
+                for relation in self._children_of(schema):
                     if relation.qualified_identifier == qualified_identifier:
                         return relation, schema
                     if not qualified_identifier.startswith(
                         f"{relation.qualified_identifier}."
                     ):
                         continue
-                    for column in _catalog_children(relation):
+                    for column in self._children_of(relation):
                         if column.qualified_identifier == qualified_identifier:
                             return column, relation
         return None
+
+    def _children_of(self, item: CatalogItem) -> Sequence[CatalogItem]:
+        """An item's children, fetched and kept on it the way the tree keeps them."""
+        if item.children or not isinstance(item, InteractiveCatalogItem):
+            return item.children
+        if not item.loaded:
+            item.children = list(item.fetch_children())
+            item.loaded = True
+            self.post_message(NewCatalogItems(parent=item, items=item.children))
+        return item.children
 
     @on(HarlequinTree.NodeHighlighted)
     def show_relations_for_node(
@@ -2016,7 +2036,8 @@ class Harlequin(AppBase):
             return
         item = message.node.data
         self.relations_panel.show(
-            item.qualified_identifier if isinstance(item, CatalogItem) else None
+            item.qualified_identifier if isinstance(item, CatalogItem) else None,
+            _database_of(message.node),
         )
 
     @work(thread=True, exclusive=True, exit_on_error=False, group="schema_updaters")
@@ -2180,9 +2201,13 @@ class Harlequin(AppBase):
         return keymap
 
 
-def _catalog_children(item: CatalogItem) -> Sequence[CatalogItem]:
-    """An item's children, fetching them if the catalog has not yet."""
-    if item.children:
-        return item.children
-    fetch = getattr(item, "fetch_children", None)
-    return fetch() if fetch is not None else ()
+def _database_of(node: TreeNode[CatalogItem]) -> str | None:
+    """The label of the top-level catalog node a node sits under."""
+    root = node.tree.root
+    if node is root:
+        return None
+    while node.parent is not None and node.parent is not root:
+        node = node.parent
+    if isinstance(node.data, CatalogItem):
+        return node.data.label
+    return str(node.label)

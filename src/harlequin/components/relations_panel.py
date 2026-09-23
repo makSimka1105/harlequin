@@ -51,8 +51,9 @@ class RelationsPanel(Tree[str]):
     class PathRequested(Message):
         """Someone chose a row that names a catalog item worth inserting."""
 
-        def __init__(self, qualified_identifier: str) -> None:
+        def __init__(self, qualified_identifier: str, database: str | None) -> None:
             self.qualified_identifier = qualified_identifier
+            self.database = database
             super().__init__()
 
     show_routes = True
@@ -64,11 +65,12 @@ class RelationsPanel(Tree[str]):
         self.guide_depth = 2
         self.graph = RelationGraph(())
         self._subject: str | None = None
+        self._database: str | None = None
 
     def action_insert_path(self) -> None:
         node = self.cursor_node
         if node is not None and node.data is not None:
-            self.post_message(self.PathRequested(node.data))
+            self.post_message(self.PathRequested(node.data, self._database))
 
     def action_collapse_or_parent(self) -> None:
         """Collapse, or step out -- the same `h` the Data Catalog tree uses."""
@@ -82,13 +84,15 @@ class RelationsPanel(Tree[str]):
 
     def action_toggle_routes(self) -> None:
         self.show_routes = not self.show_routes
-        self.show(self._subject)
+        self.show(self._subject, self._database)
 
     def update_graph(self, graph: RelationGraph) -> None:
         self.graph = graph
-        self.show(self._subject)
+        self.show(self._subject, self._database)
 
-    def show(self, qualified_identifier: str | None) -> None:
+    def show(
+        self, qualified_identifier: str | None, database: str | None = None
+    ) -> None:
         """Redraw for the catalog item with the given identifier.
 
         The identifier may name a column, a relation, or something above them
@@ -97,10 +101,11 @@ class RelationsPanel(Tree[str]):
         be true and useless.
         """
         self._subject = qualified_identifier
+        self._database = database
         self.clear()
         root = self.root
 
-        if not self.graph:
+        if not self.graph or not self.graph.covers(database):
             self._note(root, "no foreign keys")
             return
         if qualified_identifier is None:
@@ -177,9 +182,7 @@ class RelationsPanel(Tree[str]):
         heading = parent.add(_heading(ROUTED_LABEL), data=None, expand=True)
         for route in sorted(routes, key=lambda r: (len(r), r.target)):
             target = heading.add(
-                Text.assemble(
-                    _short(route.target), (f"  {len(route)} steps", _COUNT)
-                ),
+                Text.assemble(_short(route.target), (f"  {len(route)} steps", _COUNT)),
                 data=route.target,
             )
             for position, step in enumerate(route.steps, start=1):
