@@ -5,8 +5,9 @@ from typing import Awaitable, Callable
 
 import duckdb
 import pytest
+from rich.console import Console
 from textual.pilot import Pilot
-from textual.widgets import Input, OptionList, Static
+from textual.widgets import Input, OptionList
 from textual.widgets.text_area import Selection
 
 from harlequin import Harlequin
@@ -119,11 +120,13 @@ def put(editor: CodeEditor, text: str, cursor: tuple[int, int]) -> None:
 
 def row_texts(app: Harlequin) -> list[str]:
     rows = app.inspector.rows
-    return [str(rows.get_option_at_index(i).prompt) for i in range(rows.option_count)]
-
-
-def detail_text(app: Harlequin) -> str:
-    return str(app.inspector.query_one("#inspector_detail", Static).render())
+    console = Console(width=40, color_system=None)
+    texts = []
+    for index in range(rows.option_count):
+        with console.capture() as captured:
+            console.print(rows.get_option_at_index(index).prompt)
+        texts.append(" ".join(captured.get().split()).rstrip("─ "))
+    return texts
 
 
 async def inspect(pilot: Pilot, app: Harlequin, focus: Focus) -> None:
@@ -140,21 +143,20 @@ async def test_a_table_lists_its_columns_then_its_links(
         await ready(pilot, app_shop, wait_for_workers)
         await inspect(pilot, app_shop, Focus(shop("orders")))
 
-        rows = row_texts(app_shop)
-        assert [row.split()[0] for row in rows] == [
-            "orderid",
-            "customerid",
-            "связи",
-            "→",
-            "←",
+        assert row_texts(app_shop) == [
+            "PK orderid INTEGER",
+            "FK customerid INTEGER?",
+            "─ ссылается на · 1",
+            "→ customer ?",
+            "─ ссылаются сюда · 1",
+            "← orderline",
         ]
-        assert "PK" in rows[0]
-        assert "FK" in rows[1]
+        assert app_shop.inspector.border_title == "main.orders · 2 кол · 2 св"
         assert app_shop.inspector.rows.highlighted == 0
 
 
 @pytest.mark.asyncio
-async def test_a_column_is_highlighted_with_its_keys_in_the_detail(
+async def test_a_column_is_highlighted_with_its_keys_under_the_panel(
     app_shop: Harlequin, wait_for_workers: WaitForWorkers
 ) -> None:
     async with app_shop.run_test(size=(140, 40)) as pilot:
@@ -162,9 +164,7 @@ async def test_a_column_is_highlighted_with_its_keys_in_the_detail(
         await inspect(pilot, app_shop, Focus(shop("orders"), "customerid"))
 
         assert app_shop.inspector.rows.highlighted == 1
-        detail = detail_text(app_shop)
-        assert "INTEGER · NULL" in detail
-        assert "→ customer.customerid" in detail
+        assert app_shop.inspector.border_subtitle == "null"
 
 
 @pytest.mark.asyncio

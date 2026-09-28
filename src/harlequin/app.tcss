@@ -731,6 +731,8 @@ ConfirmModal Horizontal#button_row Button#no{
 InspectorPanel {
     height: 20;
     background: $background;
+    border-subtitle-align: left;
+    border-subtitle-color: $foreground-muted;
     padding: 0 1;
     border: round $border-color-nofocus;
     &:focus-within {
@@ -738,21 +740,11 @@ InspectorPanel {
     }
 }
 
-InspectorPanel #inspector_title {
-    height: 1;
-}
-
 InspectorPanel #inspector_rows {
     height: 1fr;
     border: none;
     padding: 0;
     background: $background;
-}
-
-InspectorPanel #inspector_detail {
-    height: auto;
-    max-height: 6;
-    border-top: solid $panel;
 }
 
 /* The filter box and its results only exist while filtering; the real tree is
