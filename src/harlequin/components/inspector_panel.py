@@ -4,27 +4,32 @@ from __future__ import annotations
 
 from typing import Union
 
+from rich.console import RenderableType
+from rich.rule import Rule
 from rich.style import Style
+from rich.table import Table
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import OptionList, Static
+from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
 from harlequin.catalog import ColumnDetails
-from harlequin.components.join_picker import route_label
-from harlequin.relations.graph import Link, RelationGraph, Route
+from harlequin.relations.graph import Direction, Link, RelationGraph
 from harlequin.relations.schema import SchemaIndex
 from harlequin.relations.spelling import split_identifier, table_name
 from harlequin.relations_service import Focus
 
 DIM = Style(dim=True)
 BOLD = Style(bold=True)
-MAX_NAME_WIDTH = 20
 TYPE_WIDTH = 11
+LINK_GROUPS: tuple[tuple[Direction, str], ...] = (
+    ("out", "ссылается на"),
+    ("in", "ссылаются сюда"),
+)
 SHORT_TYPES = {
     "character varying": "varchar",
     "timestamp without time zone": "timestamp",
@@ -63,9 +68,7 @@ class InspectorPanel(Vertical):
         self._entries: list[Entry] = []
 
     def compose(self) -> ComposeResult:
-        yield Static(id="inspector_title")
         yield OptionList(id="inspector_rows")
-        yield Static(id="inspector_detail")
 
     def on_mount(self) -> None:
         self._refresh_rows()
@@ -124,26 +127,26 @@ class InspectorPanel(Vertical):
         rows = self.rows
         rows.clear_options()
         self._entries = []
-        title = self.query_one("#inspector_title", Static)
         if self.target is None:
-            title.update("")
+            self.border_title = self.BORDER_TITLE
             self._note("выбери таблицу или поле")
             self._show_detail(None)
             return
 
         relation = self.target.relation
-        title.update(Text(_display_name(relation), BOLD))
         columns = self.schema.columns_of(relation)
         links = self.graph.links_for(relation)
-        width = min(
-            max((len(column.name) for column in columns), default=0), MAX_NAME_WIDTH
-        )
+        self.border_title = _title(relation, len(columns), len(links))
         for column in columns:
-            self._add(Option(_column_label(column, links, width)), column)
-        if columns and links:
-            self._add(Option(Text("связи", DIM), disabled=True), None)
-        for link in links:
-            self._add(Option(route_label(Route((link,)))), link)
+            self._add(Option(_column_label(column, links)), column)
+        for direction, heading in LINK_GROUPS:
+            group = [link for link in links if link.direction == direction]
+            if not group:
+                continue
+            rule = Rule(Text(f"─ {heading} · {len(group)}", DIM), align="left")
+            self._add(Option(rule, disabled=True), None)
+            for link in group:
+                self._add(Option(_link_label(link)), link)
         if not self._entries:
             self._note("нет данных о схеме")
         self._highlight_target()
@@ -166,41 +169,9 @@ class InspectorPanel(Vertical):
         self._show_detail(self._entry_at(index))
 
     def _show_detail(self, entry: Entry) -> None:
-        detail = self.query_one("#inspector_detail", Static)
-        detail.display = entry is not None
-        if isinstance(entry, ColumnDetails):
-            detail.update(self._column_detail(entry))
-        elif isinstance(entry, Link):
-            detail.update(_link_detail(entry))
-
-    def _column_detail(self, column: ColumnDetails) -> Text:
-        lines = [
-            Text.assemble(
-                column.type_name, (" · NULL" if column.nullable else " · NOT NULL", DIM)
-            )
-        ]
-        keys = [
-            label
-            for label, present in (
-                ("primary key", column.primary_key),
-                ("unique", column.unique),
-                ("index", column.indexed),
-            )
-            if present
-        ]
-        if column.default is not None:
-            keys.append(f"default {column.default}")
-        if keys:
-            lines.append(Text(" · ".join(keys)))
-        for link in self.graph.links_for(column.relation):
-            if column.name not in link.near_columns:
-                continue
-            far_column = link.far_columns[link.near_columns.index(column.name)]
-            arrow = "→" if link.direction == "out" else "←"
-            lines.append(Text(f"{arrow} {table_name(link.far_relation)}.{far_column}"))
-        if column.comment:
-            lines.append(Text(column.comment, DIM))
-        return Text("\n").join(lines)
+        self.border_subtitle = (
+            _column_detail(entry) if isinstance(entry, ColumnDetails) else ""
+        )
 
     def _add(self, option: Option, entry: Entry) -> None:
         self.rows.add_option(option)
@@ -215,45 +186,69 @@ class InspectorPanel(Vertical):
         self._add(Option(Text(message, DIM), disabled=True), None)
 
 
-def _display_name(relation: str) -> str:
-    return ".".join(split_identifier(relation)[-2:])
+def _title(relation: str, column_count: int, link_count: int) -> str:
+    counts = [
+        f"{count} {unit}"
+        for count, unit in ((column_count, "кол"), (link_count, "св"))
+        if count
+    ]
+    return " · ".join([".".join(split_identifier(relation)[-2:]), *counts])
 
 
-def _column_label(column: ColumnDetails, links: list[Link], width: int) -> Text:
+def _row(*cells: RenderableType) -> Table:
+    """One line that fits the panel: the middle cell gives way with an ellipsis."""
+    grid = Table.grid(expand=True, padding=(0, 1), pad_edge=False)
+    grid.add_column(width=2, no_wrap=True)
+    grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
+    grid.add_column(justify="right", no_wrap=True)
+    grid.add_row(*cells)
+    return grid
+
+
+def _column_label(column: ColumnDetails, links: list[Link]) -> Table:
     foreign = any(
         link.direction == "out" and column.name in link.near_columns for link in links
     )
-    marks = [
-        mark
-        for mark, present in (
-            ("PK", column.primary_key),
-            ("FK", foreign),
-            ("UQ", column.unique),
+    mark = next(
+        (
+            mark
+            for mark, present in (
+                ("PK", column.primary_key),
+                ("FK", foreign),
+                ("UQ", column.unique),
+            )
+            if present
+        ),
+        "",
+    )
+    type_label = _short_type(column.type_name) + ("?" if column.nullable else "")
+    return _row(Text(mark, BOLD), column.name, Text(type_label, DIM))
+
+
+def _link_label(link: Link) -> Table:
+    arrow = "→" if link.direction == "out" else "←"
+    return _row(
+        Text(arrow, BOLD),
+        table_name(link.far_relation),
+        Text("?" if link.nullable else "", DIM),
+    )
+
+
+def _column_detail(column: ColumnDetails) -> str:
+    flags = [
+        flag
+        for flag, present in (
+            ("pk", column.primary_key),
+            ("uq", column.unique),
+            ("index", column.indexed),
         )
         if present
     ]
-    return Text.assemble(
-        f"{column.name:<{width}} ",
-        (f"{_short_type(column.type_name):<{TYPE_WIDTH}} ", DIM),
-        (" ".join(marks), BOLD),
-        ("?" if column.nullable else "", DIM),
-    )
+    default = [f"default {column.default}"] if column.default is not None else []
+    return " · ".join(["null" if column.nullable else "not null", *flags, *default])
 
 
 def _short_type(type_name: str) -> str:
     base, paren, rest = type_name.partition("(")
     short = SHORT_TYPES.get(base, base) + paren + rest
     return short if len(short) <= TYPE_WIDTH else short[: TYPE_WIDTH - 1] + "…"
-
-
-def _link_detail(link: Link) -> Text:
-    near, far = table_name(link.near_relation), table_name(link.far_relation)
-    lines = [
-        Text(f"on {near}.{near_column} = {far}.{far_column}")
-        for near_column, far_column in zip(
-            link.near_columns, link.far_columns, strict=True
-        )
-    ]
-    if link.nullable:
-        lines.append(Text("nullable → left join", DIM))
-    return Text("\n").join(lines)
