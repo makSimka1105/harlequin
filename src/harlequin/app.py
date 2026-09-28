@@ -1307,6 +1307,11 @@ class Harlequin(AppBase):
             self.action_toggle_sidebar()
         self.data_catalog.focus()
 
+    def action_focus_inspector(self) -> None:
+        if self.sidebar_hidden or self.inspector.disabled:
+            self.action_toggle_sidebar()
+        self.inspector.rows.focus()
+
     def action_focus_query_editor(self) -> None:
         if self.editor is not None:
             self.editor.focus()

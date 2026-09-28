@@ -67,6 +67,7 @@ def test_vimnav_binds_app_actions() -> None:
     # added later does not replace an earlier one. The press tests below cover
     # them.
     assert app_bound["ctrl+d"] == "focus_data_catalog"
+    assert app_bound["ctrl+i"] == "focus_inspector"
     assert app_bound["ctrl+shift+e,f4"] == "show_data_exporter"
     assert app_bound["ctrl+shift+r,f3"] == "refresh_catalog"
     assert app_bound["f7"] == "cancel_query"
@@ -387,3 +388,24 @@ def test_vimnav_binds_the_join_picker() -> None:
         binding.keys == "ctrl+l" and binding.action == "code_editor.show_join_picker"
         for binding in VIMNAV_EDITOR_BINDINGS
     )
+
+
+@pytest.mark.asyncio
+async def test_vimnav_ctrl_i_focuses_the_inspector(
+    app_with_vimnav: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_with_vimnav
+    async with app.run_test() as pilot:
+        await wait_for_workers(app)
+        await wait_for_editor(pilot, app)
+        await _settle_initial_editor_focus(pilot, app)
+
+        app.results_viewer.focus()
+        await pilot.pause()
+        await pilot.press("ctrl+i")
+        await wait_for(
+            pilot,
+            lambda: app.inspector.has_focus_within,
+            description="ctrl+i to focus the Inspector",
+        )

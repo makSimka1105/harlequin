@@ -24,6 +24,9 @@ VIMNAV_APP_BINDINGS = [
     # "d" for "data catalog": ctrl+c is taken by copy in all three panes, so
     # it can't stand for "catalog" here.
     HarlequinKeyBinding("ctrl+d", "focus_data_catalog"),
+    # textual aliases tab to ctrl+i, but vscode's app-wide tab is matched first,
+    # so only a real ctrl+i (kitty keyboard protocol) reaches this
+    HarlequinKeyBinding("ctrl+i", "focus_inspector"),
     # The per-pane ctrl+e/ctrl+r bindings shadow vscode's
     # show_data_exporter/refresh_catalog in every pane that has focus, so those
     # rare actions get a second key here: ctrl+shift+<letter>, each with an
