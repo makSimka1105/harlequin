@@ -378,3 +378,12 @@ async def test_vimnav_h_on_a_collapsed_node_moves_cursor_to_its_parent(
             lambda: tree.cursor_line == db_node.line,
             description="h on a collapsed node to move the cursor up to its parent",
         )
+
+
+def test_vimnav_binds_the_join_picker() -> None:
+    from harlequin_vimnav import VIMNAV_EDITOR_BINDINGS
+
+    assert any(
+        binding.keys == "ctrl+l" and binding.action == "code_editor.show_join_picker"
+        for binding in VIMNAV_EDITOR_BINDINGS
+    )

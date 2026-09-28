@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-from harlequin.statements import Statement, find_separators, split, statement_at
+from harlequin.statements import (
+    Statement,
+    StatementSpan,
+    find_separators,
+    split,
+    statement_at,
+    statement_span_at,
+)
 
 # (name, script, expected statements). The name is the pytest id.
 CORPUS: list[tuple[str, str, list[str]]] = [
@@ -274,3 +281,18 @@ def test_statement_at_of_empty_text_is_none() -> None:
 
 def test_statement_at_falls_back_to_none_in_trailing_whitespace() -> None:
     assert statement_at("select 1;\n\n", (2, 0)) is None
+
+
+def test_statement_span_points_at_the_stripped_statement() -> None:
+    text = "select 1;\n\n  select 2 from t;"
+    span = statement_span_at(text, (2, 4))
+    assert span == StatementSpan(start=13, text="select 2 from t;")
+    assert text[span.start :].startswith("select 2")
+
+
+def test_statement_span_of_a_single_statement_is_the_whole_text() -> None:
+    assert statement_span_at("select 1", (0, 3)) == StatementSpan(0, "select 1")
+
+
+def test_statement_span_in_blank_space_is_none() -> None:
+    assert statement_span_at("select 1;\n\n", (1, 0)) is None

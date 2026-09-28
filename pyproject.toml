@@ -176,7 +176,9 @@ force-include = { "src/harlequin/hsql/skill/.claude-plugin/plugin.json" = "harle
 packages = [
     "src/harlequin",
     "src/harlequin_duckdb",
+    "src/harlequin_pgfk",
     "src/harlequin_sqlite",
+    "src/harlequin_vimnav",
     "src/harlequin_vscode",
 ]
 

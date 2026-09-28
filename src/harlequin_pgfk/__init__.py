@@ -1,14 +1,4 @@
-"""The Postgres adapter, plus the foreign keys the Relations panel needs.
-
-Foreign keys live here rather than in core because an edge is matched against a
-`CatalogItem.qualified_identifier`, and only the adapter knows how its own
-catalog spells one. Postgres spells a relation `"schema"."table"` -- the database
-is NOT part of it, even though the tree shows databases above schemas -- so this
-module spells edges the same way and matching stays a plain string comparison.
-
-It subclasses rather than forks `harlequin-postgres`: that package keeps getting
-releases, and everything except `get_foreign_keys()` should keep coming from it.
-"""
+"""The Postgres adapter plus the keys and column details the Inspector needs."""
 
 from __future__ import annotations
 
@@ -20,9 +10,11 @@ from harlequin_postgres.adapter import (
 )
 from harlequin_postgres.loaders import register_inf_loaders
 
-from harlequin.catalog import ForeignKeyEdge
+from harlequin.catalog import ColumnDetails, ForeignKeyEdge
 from harlequin.exception import HarlequinConnectionError
 
+# unnest ... with ordinality keeps a composite key's columns paired and ordered;
+# conparentid = 0 drops the copies Postgres clones onto every partition
 FOREIGN_KEYS_SQL = """
 select
     con.conname,
@@ -32,7 +24,8 @@ select
     tgt_ns.nspname,
     tgt.relname,
     array_agg(tgt_att.attname order by cols.ord),
-    current_database()
+    current_database(),
+    bool_or(not src_att.attnotnull)
 from pg_catalog.pg_constraint con
 join pg_catalog.pg_class src on src.oid = con.conrelid
 join pg_catalog.pg_namespace src_ns on src_ns.oid = src.relnamespace
@@ -51,32 +44,65 @@ where
 group by 1, 2, 3, 5, 6
 order by 2, 3, 1
 """
-"""Every foreign key of the connected database, one row per constraint.
 
-`unnest(conkey, confkey) with ordinality` walks the two column-number arrays in
-step, so a key spanning several columns keeps its referencing and referenced
-columns paired and in the order the constraint declares them.
-
-`conparentid = 0` keeps only the key as declared: on a partitioned table
-Postgres clones it onto every partition, and those clones are not joins anyone
-writes by hand.
+# indkey is an int2vector, indexed from 0: indkey[0] is an index's leading column
+COLUMN_DETAILS_SQL = r"""
+select
+    ns.nspname,
+    rel.relname,
+    att.attname,
+    att.attnum,
+    pg_catalog.format_type(att.atttypid, att.atttypmod),
+    not att.attnotnull,
+    case
+        when att.attidentity <> '' then 'identity'
+        when att.attgenerated <> ''
+            then 'generated as ' || pg_catalog.pg_get_expr(def.adbin, def.adrelid)
+        else pg_catalog.pg_get_expr(def.adbin, def.adrelid)
+    end,
+    exists (
+        select from pg_catalog.pg_index i
+        where i.indrelid = rel.oid and i.indisprimary and att.attnum = any(i.indkey)
+    ),
+    exists (
+        select from pg_catalog.pg_index i
+        where
+            i.indrelid = rel.oid
+            and i.indisunique
+            and not i.indisprimary
+            and i.indnkeyatts = 1
+            and i.indkey[0] = att.attnum
+            and i.indpred is null
+    ),
+    exists (
+        select from pg_catalog.pg_index i
+        where i.indrelid = rel.oid and i.indkey[0] = att.attnum
+    ),
+    pg_catalog.col_description(rel.oid, att.attnum),
+    current_database()
+from pg_catalog.pg_attribute att
+join pg_catalog.pg_class rel on rel.oid = att.attrelid
+join pg_catalog.pg_namespace ns on ns.oid = rel.relnamespace
+left join pg_catalog.pg_attrdef def
+    on def.adrelid = att.attrelid and def.adnum = att.attnum
+where
+    att.attnum > 0
+    and not att.attisdropped
+    and rel.relkind in ('r', 'p', 'v', 'm', 'f')
+    and not rel.relispartition
+    and ns.nspname <> 'information_schema'
+    and ns.nspname not like 'pg\_%'
+order by 1, 2, 4
 """
 
 
 def _identifier(*labels: str) -> str:
-    """Spell a catalog identifier the way the Postgres adapter's catalog does."""
+    """Spelled like the Postgres catalog: schema-qualified, database left out."""
     return ".".join(f'"{label}"' for label in labels)
 
 
 class HarlequinPgFkConnection(HarlequinPostgresConnection):
     def get_foreign_keys(self) -> Sequence[ForeignKeyEdge]:
-        """Read the connected database's foreign keys.
-
-        Only that one database: a Postgres connection cannot see another's
-        catalog, while Harlequin's tree may list several. Identifiers leave the
-        database out, so each edge names it; otherwise `public.users` in another
-        database would borrow this one's keys.
-        """
         with self.pool.connection() as conn, conn.cursor() as cur:
             cur.execute(FOREIGN_KEYS_SQL)
             rows = cur.fetchall()
@@ -88,7 +114,9 @@ class HarlequinPgFkConnection(HarlequinPostgresConnection):
                 from_columns=tuple(from_columns),
                 to_relation=_identifier(to_schema, to_table),
                 to_columns=tuple(to_columns),
+                # identifiers omit the database, so the edge has to name it
                 database=database,
+                nullable=nullable,
             )
             for (
                 name,
@@ -99,18 +127,49 @@ class HarlequinPgFkConnection(HarlequinPostgresConnection):
                 to_table,
                 to_columns,
                 database,
+                nullable,
+            ) in rows
+        ]
+
+    def get_column_details(self) -> Sequence[ColumnDetails]:
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(COLUMN_DETAILS_SQL)
+            rows = cur.fetchall()
+
+        return [
+            ColumnDetails(
+                relation=_identifier(schema, table),
+                name=name,
+                position=position,
+                type_name=type_name,
+                nullable=nullable,
+                default=default,
+                primary_key=primary_key,
+                unique=unique,
+                indexed=indexed,
+                comment=comment,
+                database=database,
+            )
+            for (
+                schema,
+                table,
+                name,
+                position,
+                type_name,
+                nullable,
+                default,
+                primary_key,
+                unique,
+                indexed,
+                comment,
+                database,
             ) in rows
         ]
 
 
 class HarlequinPgFkAdapter(HarlequinPostgresAdapter):
     def connect(self) -> HarlequinPgFkConnection:
-        """Build the connection the parent would, as the subclass.
-
-        The parent constructs its connection class by name, so there is no hook
-        to substitute ours; these few lines mirror it deliberately. Keep them in
-        step with `HarlequinPostgresAdapter.connect` when upstream changes it.
-        """
+        # mirrors HarlequinPostgresAdapter.connect, which has no class hook
         if len(self.conn_str) > 1:
             raise HarlequinConnectionError(
                 "Cannot provide multiple connection strings to the Postgres adapter. "

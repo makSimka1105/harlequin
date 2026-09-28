@@ -129,6 +129,8 @@ CTE попадают в scope (нужны всплывашке), но катал
 
 ## 2. Панель связей
 
+> Заменён спекой `2026-09-24-relations-joins-design.md`.
+
 ### Данные
 
 В ядро — `HarlequinConnection.get_foreign_keys() -> Sequence[ForeignKeyEdge]`,

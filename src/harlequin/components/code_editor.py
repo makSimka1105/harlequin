@@ -297,6 +297,10 @@ class CodeEditor(TextEditor, inherit_bindings=False):
         if hasattr(self.app, "action_focus_data_catalog"):
             self.app.action_focus_data_catalog()
 
+    def action_show_join_picker(self) -> None:
+        if hasattr(self.app, "action_show_join_picker"):
+            self.app.action_show_join_picker()
+
 
 class EditorCollection(Vertical):
     """

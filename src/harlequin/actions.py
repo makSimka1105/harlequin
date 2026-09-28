@@ -209,6 +209,12 @@ HARLEQUIN_ACTIONS = {
     "code_editor.focus_data_catalog": Action(
         target=CodeEditor, action="focus_data_catalog"
     ),
+    "code_editor.show_join_picker": Action(
+        target=CodeEditor,
+        action="show_join_picker",
+        description="Join Table",
+        show=True,
+    ),
     # TODO: ADD AUTOCOMPLETE BINDINGS
     #######################################################
     # DataCatalog ACTIONS

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Type, Union
 
+from platformdirs import user_config_path
 from textual.app import App, InvalidThemeError
 from textual.binding import ActiveBinding
 from textual.driver import Driver
 from textual.screen import Screen
+from textual.theme import Theme
 from textual.types import CSSPathType
 
 from harlequin.colors import HARLEQUIN_TEXTUAL_THEME
@@ -65,12 +68,17 @@ class AppBase(App, inherit_bindings=False):
         # handler that reads it
         self._crash_handled = False
         self.register_theme(HARLEQUIN_TEXTUAL_THEME)
+        user_themes = _load_user_themes()
+        for user_theme in user_themes:
+            self.register_theme(user_theme)
         try:
             self.theme = theme or "harlequin"
         except InvalidThemeError:
             from harlequin.colors import VALID_THEMES
 
-            valid_themes = ", ".join(VALID_THEMES.keys())
+            valid_themes = ", ".join(
+                [*VALID_THEMES.keys(), *(user_theme.name for user_theme in user_themes)]
+            )
             e = HarlequinThemeError(
                 (
                     f"No theme found with the name {theme}.\n"
@@ -81,6 +89,12 @@ class AppBase(App, inherit_bindings=False):
                 title="Harlequin couldn't load your theme.",
             )
             self.exit(return_code=2, message=pretty_error_message(e))
+
+    def watch_theme(self, theme_name: str) -> None:
+        # A theme whose background is the terminal's own needs ANSI colors passed
+        # through; otherwise Textual converts ansi_default to an opaque RGB.
+        transparent = self.current_theme.variables.get("background") == "ansi_default"
+        self.ansi_color = True if transparent else None
 
     def get_default_screen(self) -> Screen:
         """
@@ -157,3 +171,21 @@ class AppBase(App, inherit_bindings=False):
         # `textual run --dev`: append the full traceback for whoever is developing
         if "debug" in self.features:
             super()._handle_exception(error)
+
+
+def _load_user_themes() -> list[Theme]:
+    """Textual themes from `themes/*.json` in the user config dir, one per file.
+
+    Each file holds the keyword arguments of a `textual.theme.Theme`. A file that
+    does not parse is skipped with a warning, so it cannot stop the app starting.
+    """
+    from harlequin.exception import pretty_print_warning
+
+    themes_dir = user_config_path(appname="harlequin", appauthor=False) / "themes"
+    user_themes: list[Theme] = []
+    for theme_path in sorted(themes_dir.glob("*.json")):
+        try:
+            user_themes.append(Theme(**json.loads(theme_path.read_text())))
+        except (OSError, ValueError, TypeError) as e:
+            pretty_print_warning("Harlequin skipped a theme.", f"{theme_path}: {e}")
+    return user_themes

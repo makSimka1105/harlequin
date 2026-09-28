@@ -9,6 +9,7 @@ from harlequin.catalog import (
     Catalog,
     CatalogSearchKind,
     CatalogSearchResult,
+    ColumnDetails,
     ForeignKeyEdge,
 )
 from harlequin.options import HarlequinAdapterOption, HarlequinCopyFormat
@@ -156,6 +157,10 @@ class HarlequinConnection(ABC):
         foreign keys and for an adapter that does not introspect them; the
         panel then simply has nothing to show.
         """
+        return ()
+
+    def get_column_details(self) -> Sequence[ColumnDetails]:
+        """Every column's type, nullability, keys and comment; empty if unknown."""
         return ()
 
     def get_completions(self) -> list[HarlequinCompletion]:
