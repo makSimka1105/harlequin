@@ -364,6 +364,9 @@ async def test_escape_from_the_aliases_returns_to_the_routes(
         assert app_shop.screen.query_one("#join_candidates").display
         assert not app_shop.screen.query_one("#join_aliases").display
         assert app_shop.screen.query_one("#join_filter", Input).value == "line"
+        assert app_shop.screen.query_one("#join_picker").border_subtitle == (
+            "enter алиасы · ctrl+enter вставить"
+        )
 
 
 @pytest.mark.asyncio

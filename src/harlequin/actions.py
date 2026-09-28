@@ -60,6 +60,10 @@ HARLEQUIN_ACTIONS = {
         target=None,
         action="focus_data_catalog",
     ),
+    "focus_inspector": Action(
+        target=None,
+        action="focus_inspector",
+    ),
     "toggle_sidebar": Action(
         target=None,
         action="toggle_sidebar",

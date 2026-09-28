@@ -23,6 +23,7 @@ DIM = Style(dim=True)
 BOLD = Style(bold=True)
 NAME_WIDTH = 18
 ALIAS_KEYS = "enter/tab ↓ · shift+tab ↑ · ctrl+enter ✓"
+ROUTE_KEYS = "enter алиасы · ctrl+enter вставить"
 
 PlanJoin = Callable[[Route, Sequence[str]], Union[Edit, JoinRefusal]]
 
@@ -199,7 +200,7 @@ class JoinPicker(ModalScreen[Union[Edit, JoinRefusal, None]]):
         self._set_stage(renaming=False)
         box = self.query_one("#join_picker")
         box.border_title = "Join"
-        box.border_subtitle = ""
+        box.border_subtitle = ROUTE_KEYS
         self.query_one("#join_filter", Input).focus()
 
     def _set_stage(self, renaming: bool) -> None:
