@@ -26,10 +26,12 @@ def pointer_at(text: str, offset: int) -> Pointer | None:
 
     # tree-sitter counts bytes; a cursor right after a word still means that word
     cursor_byte = len(text[:offset].encode("utf-8"))
+    # error recovery leaves an empty identifier after a dangling `and`
     identifiers_under_cursor = [
         node
         for node in captures(text, IDENTIFIER_QUERY).get("identifier", [])
         if node.start_byte <= cursor_byte <= node.end_byte
+        and node.start_byte < node.end_byte
     ]
     if not identifiers_under_cursor:
         return None

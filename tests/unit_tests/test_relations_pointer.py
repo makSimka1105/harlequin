@@ -58,3 +58,10 @@ def test_keywords_and_literals_point_at_nothing(word: str) -> None:
 def test_blank_text_points_at_nothing() -> None:
     assert pointer_at("", 0) is None
 
+
+@pytest.mark.parametrize("dangling", ["and", "or"])
+def test_the_parser_placeholder_after_a_dangling_operator_is_nothing(
+    dangling: str,
+) -> None:
+    sql = f"select p.name from production.product p where p.name = 'x' {dangling}\n"
+    assert pointer_at(sql, len(sql) - 1) is None
