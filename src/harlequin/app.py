@@ -34,7 +34,7 @@ from textual.screen import Screen, ScreenResultCallbackType, ScreenResultType
 from textual.timer import Timer
 from textual.types import CSSPathType
 from textual.widget import AwaitMount, Widget
-from textual.widgets import Button, Footer, Input
+from textual.widgets import Button, Footer, Input, TextArea
 from textual.worker import Worker, WorkerState
 from textual_fastdatatable import DataTable
 
@@ -50,7 +50,6 @@ from harlequin.catalog import (
     CatalogItem,
     CatalogSearchResult,
     Interaction,
-    InteractiveCatalogItem,
     TCatalogItem_contra,
 )
 from harlequin.catalog_cache import (
@@ -75,7 +74,8 @@ from harlequin.components.confirm_modal import ConfirmModal
 from harlequin.components.data_catalog import ContextMenu
 from harlequin.components.data_catalog.tree import HarlequinTree
 from harlequin.components.debug_info import AdapterDebugInfo, HarlequinDebugInfo
-from harlequin.components.relations_panel import RelationsPanel
+from harlequin.components.inspector_panel import InspectorPanel
+from harlequin.components.join_picker import JoinPicker
 from harlequin.config import (
     get_highest_priority_existing_config_file,
     load_config,
@@ -105,9 +105,12 @@ from harlequin.messages import NewCatalog, NewCatalogItems, WidgetMounted
 from harlequin.plugins import load_keymap_plugins
 from harlequin.query import ExecutedStatement, ResultSet, RowLimit, execute, fetch
 from harlequin.query_log import UI_BUSY_TIMEOUT_MS, QueryLog
-from harlequin.references import DEFAULT_RESERVED, path_for, read_scope
-from harlequin.relations import RelationGraph
-from harlequin.statements import Statement, statement_at
+from harlequin.relations.graph import RelationGraph
+from harlequin.relations.joins import JoinRefusal
+from harlequin.relations.schema import SchemaIndex
+from harlequin.relations.spelling import DEFAULT_RESERVED
+from harlequin.relations_service import Edit, RelationsService
+from harlequin.statements import Statement, StatementSpan, statement_span_at
 from harlequin.transaction_mode import HarlequinTransactionMode
 from harlequin.windows_timezone import (
     TZ_DATA_DOCS_URL,
@@ -246,9 +249,10 @@ class CatalogSearchError(Message):
         super().__init__()
 
 
-class RelationsReady(Message):
-    def __init__(self, graph: RelationGraph) -> None:
+class SchemaReady(Message):
+    def __init__(self, graph: RelationGraph, schema: SchemaIndex) -> None:
         self.graph = graph
+        self.schema = schema
         super().__init__()
 
 
@@ -414,7 +418,8 @@ class Harlequin(AppBase):
         self.connection: HarlequinConnection | None = None
         self.catalog: Catalog | None = None
         self._pending_filter: Timer | None = None
-        self.reserved_words: frozenset[str] = DEFAULT_RESERVED
+        self._pending_inspection: Timer | None = None
+        self.relations = RelationsService(on_loaded=self._announce_loaded_items)
         self._recovery_lock = threading.Lock()
         """Held across reopening the tunnel and the connection through it.
 
@@ -455,7 +460,7 @@ class Harlequin(AppBase):
         editor_placeholder = Lazy(widget=self.editor_collection)
         editor_placeholder.border_title = self.editor_collection.border_title
         editor_placeholder.loading = True
-        self.relations_panel = RelationsPanel()
+        self.inspector = InspectorPanel()
         self.results_viewer = ResultsViewer()
         self.run_query_bar = RunQueryBar(
             query_limit=self.query_limit,
@@ -468,7 +473,7 @@ class Harlequin(AppBase):
         with Horizontal():
             with Vertical(id="catalog_panel"):
                 yield self.data_catalog
-                yield self.relations_panel
+                yield self.inspector
             with Vertical(id="main_panel"):
                 yield editor_placeholder
                 yield self.run_query_bar
@@ -602,7 +607,6 @@ class Harlequin(AppBase):
     @on(DatabaseConnected)
     def initialize_app(self, message: DatabaseConnected) -> None:
         self.connection = message.connection
-        self.load_relations()
         self.post_message(
             TransactionModeChanged(new_mode=message.connection.transaction_mode)
         )
@@ -626,22 +630,18 @@ class Harlequin(AppBase):
         if node.tree is self.data_catalog.filtered_tree and isinstance(
             node.data, CatalogItem
         ):
-            # A search result's ancestors are labels, not catalog items, so the
-            # node cannot say what owns it. The resolver finds the real pair in
-            # the catalog -- which may query the database, hence the worker.
+            # a search result's ancestors are labels, so its owner is looked up
             self.resolve_and_insert_path(
-                node.data.qualified_identifier, _database_of(node)
+                node.data.qualified_identifier,
+                _database_of(node),
+                self._statement_text(),
             )
             return
         self.editor.insert_text_at_selection(text=self._insert_text_for(message))
         self.editor.focus()
 
     def _insert_text_for(self, message: HarlequinTree.NodeSubmitted) -> str:
-        """What a submitted node puts in the editor.
-
-        Only a catalog item gets a path: a file or an S3 key has no owner and no
-        alias, and its own spelling is already what the query needs.
-        """
+        """A path for a catalog item; files and S3 keys insert as they are."""
         node = message.node
         if not isinstance(node.data, CatalogItem):
             return message.insert_name
@@ -651,54 +651,40 @@ class Harlequin(AppBase):
             if node.parent is not None and node.parent.parent is not None
             else None
         )
-        assert self.editor is not None
-        return path_for(
-            item=node.data,
-            owner=owner if isinstance(owner, CatalogItem) else None,
-            scope=read_scope(self._scope_text()),
-            reserved=self.reserved_words,
-            known_relations=self._known_relations(),
+        return self.relations.path_for_item(
+            node.data,
+            owner if isinstance(owner, CatalogItem) else None,
+            self._statement_text(),
         )
 
-    def _scope_text(self) -> str:
-        """The buffer text to read a scope from: the statement under the cursor.
+    def _announce_loaded_items(
+        self, parent: CatalogItem, items: list[CatalogItem]
+    ) -> None:
+        self.post_message(NewCatalogItems(parent=parent, items=items))
 
-        An alias belongs to one statement; parsing the whole buffer would let
-        an alias from an earlier statement leak into a later one that reuses
-        it for a different table. A cursor that lands outside any statement --
-        trailing whitespace, an empty buffer -- falls back to the whole
-        buffer rather than an empty scope.
-        """
+    def _statement(self) -> StatementSpan | None:
         assert self.editor is not None
-        text = self.editor.text
-        statement = statement_at(text, self.editor.selection.end)
-        return statement if statement is not None else text
+        return statement_span_at(self.editor.text, self.editor.selection.end)
 
-    def _known_relations(self) -> frozenset[str]:
-        """Qualified identifiers of every relation loaded in the Data Catalog.
+    def _statement_text(self) -> str:
+        """The statement under the cursor, or the whole buffer outside one."""
+        assert self.editor is not None
+        span = self._statement()
+        return span.text if span is not None else self.editor.text
 
-        Best-effort: the catalog loads lazily, so a schema branch nobody has
-        expanded in the tree contributes nothing here. A node counts as a
-        relation when its own `query_name` has more than one segment -- the
-        same rule `path_for` uses to tell a relation from a column -- so an
-        adapter that does not schema-qualify relations is invisible to this
-        walk too, same as it is to `path_for`.
-        """
-        from harlequin.navigate import split_path
-
-        root = self.data_catalog.database_tree.root
-        if root is None:
-            return frozenset()
-
-        relations: set[str] = set()
-        stack = list(root.children)
-        while stack:
-            node = stack.pop()
-            item = node.data
-            if isinstance(item, CatalogItem) and len(split_path(item.query_name)) > 1:
-                relations.add(item.qualified_identifier)
-            stack.extend(node.children)
-        return frozenset(relations)
+    def _apply_edit(self, edit: Edit) -> None:
+        assert self.editor is not None and self.editor.text_input is not None
+        if edit.offset is None:
+            self.editor.insert_text_at_selection(text=edit.text)
+        else:
+            text = self.editor.text
+            row = text.count("\n", 0, edit.offset)
+            column = edit.offset - (text.rfind("\n", 0, edit.offset) + 1)
+            text_area = self.editor.text_input
+            text_area.move_cursor(
+                text_area.insert(edit.text, (row, column)).end_location
+            )
+        self.editor.focus()
 
     def _recycle_message(self, message: Message) -> None:
         """Re-post a message we can't handle yet, while we wait for the editor."""
@@ -952,7 +938,9 @@ class Harlequin(AppBase):
     @on(NewCatalog)
     def handle_new_catalog(self, message: NewCatalog) -> None:
         self.catalog = message.catalog
+        self.relations.update_catalog(message.catalog)
         self.data_catalog.update_database_tree(message.catalog)
+        self.load_schema()
         self.update_completers(message.catalog)
 
     @on(CatalogRefreshAborted)
@@ -1082,12 +1070,12 @@ class Harlequin(AppBase):
             if target == self.editor_collection:
                 self.run_query_bar.disabled = False
             self.data_catalog.disabled = True
-            self.relations_panel.disabled = True
+            self.inspector.disabled = True
         else:
             for w in all_widgets:
                 w.disabled = False
             self.data_catalog.disabled = self.sidebar_hidden
-            self.relations_panel.disabled = self.sidebar_hidden
+            self.inspector.disabled = self.sidebar_hidden
 
     @on(QuerySubmitted)
     def execute_query(self, message: QuerySubmitted) -> None:
@@ -1104,7 +1092,7 @@ class Harlequin(AppBase):
             if self.data_catalog.has_focus and self.editor is not None:
                 self.editor.focus()
         self.data_catalog.disabled = sidebar_hidden
-        self.relations_panel.disabled = sidebar_hidden
+        self.inspector.disabled = sidebar_hidden
 
     def _post_tunnel_closed(self, notice: str) -> None:
         """Called on the tunnel's watcher thread, so it only posts a message.
@@ -1180,7 +1168,7 @@ class Harlequin(AppBase):
 
     @on(CompletersReady)
     def update_editor_completers(self, message: CompletersReady) -> None:
-        self.reserved_words = message.reserved_words
+        self.relations.reserved = message.reserved_words
         self.editor_collection.word_completer = message.word_completer
         self.editor_collection.member_completer = message.member_completer
 
@@ -1505,7 +1493,7 @@ class Harlequin(AppBase):
         if self.sidebar_hidden is False and self.data_catalog.disabled is True:
             # sidebar was hidden by f10; toggle should show it
             self.data_catalog.disabled = False
-            self.relations_panel.disabled = False
+            self.inspector.disabled = False
         else:
             self.sidebar_hidden = not self.sidebar_hidden
 
@@ -1892,26 +1880,57 @@ class Harlequin(AppBase):
             )
         )
 
-    @work(thread=True, exclusive=True, exit_on_error=False, group="relations")
-    def load_relations(self) -> None:
-        """Read the foreign keys once, off the event loop.
-
-        Adapters that do not introspect them return nothing, and the panel then
-        says so instead of staying blank.
-        """
+    @work(thread=True, exclusive=True, exit_on_error=False, group="schema")
+    def load_schema(self) -> None:
+        """Read the foreign keys and column details off the event loop."""
         if self.connection is None:
             return
+        # either is a nicety; a database that will not report one keeps the other
         try:
             edges = self.connection.get_foreign_keys()
         except Exception:
-            # foreign keys are a nicety; a database that will not report them
-            # should not stop the rest of the app from working
             edges = []
-        self.post_message(RelationsReady(graph=RelationGraph(edges)))
+        try:
+            columns = self.connection.get_column_details()
+        except Exception:
+            columns = []
+        self.post_message(
+            SchemaReady(graph=RelationGraph(edges), schema=SchemaIndex(columns))
+        )
 
-    @on(RelationsReady)
-    def update_relations_panel(self, message: RelationsReady) -> None:
-        self.relations_panel.update_graph(message.graph)
+    @on(SchemaReady)
+    def update_inspector(self, message: SchemaReady) -> None:
+        self.relations.graph = message.graph
+        self.relations.schema = message.schema
+        self.inspector.update_schema(message.graph, message.schema)
+
+    @on(TextArea.SelectionChanged)
+    def follow_editor_cursor(self, message: TextArea.SelectionChanged) -> None:
+        if self.editor is None or message.text_area is not self.editor.text_input:
+            return
+        if self._pending_inspection is not None:
+            self._pending_inspection.stop()
+        self._pending_inspection = self.set_timer(
+            delay=0.15, callback=self.inspect_editor_cursor
+        )
+
+    def inspect_editor_cursor(self) -> None:
+        # the panel keeps showing its pick while it, not the editor, has focus
+        if (
+            self.editor is None
+            or self.editor.text_input is None
+            or not self.editor.text_input.has_focus
+        ):
+            return
+        focus = self.relations.focus_at(self._statement(), self._cursor_offset())
+        if focus is not None:
+            self.inspector.show(focus)
+
+    def _cursor_offset(self) -> int:
+        assert self.editor is not None
+        row, column = self.editor.selection.end
+        lines = self.editor.text.split("\n")
+        return sum(len(line) + 1 for line in lines[:row]) + column
 
     @on(DataCatalog.FilterChanged)
     def filter_catalog(self, message: DataCatalog.FilterChanged) -> None:
@@ -1958,87 +1977,67 @@ class Harlequin(AppBase):
     def report_catalog_search_error(self, message: CatalogSearchError) -> None:
         self.notify(str(message.error), severity="error")
 
-    @on(RelationsPanel.PathRequested)
-    def insert_relation_path(self, message: RelationsPanel.PathRequested) -> None:
-        self.resolve_and_insert_path(message.qualified_identifier, message.database)
+    @on(InspectorPanel.InsertPath)
+    def insert_relation_path(self, message: InspectorPanel.InsertPath) -> None:
+        message.stop()
+        if self.editor is None:
+            self._recycle_message(message)
+            return
+        self.resolve_and_insert_path(
+            message.identifier, message.database, self._statement_text()
+        )
+
+    def action_show_join_picker(self) -> None:
+        if self.editor is None:
+            return
+        empty = "нечего присоединять" if self.relations.graph else "нет внешних ключей"
+        statement = self._statement()
+        self.push_screen(
+            JoinPicker(
+                self.relations.join_candidates(statement),
+                empty,
+                plan_join=lambda route, aliases: self.relations.join_edit(
+                    route, statement, aliases
+                ),
+            ),
+            callback=self._insert_join,
+        )
+
+    def _insert_join(self, edit: Edit | JoinRefusal | None) -> None:
+        if edit is None or self.editor is None:
+            return
+        if isinstance(edit, JoinRefusal):
+            self.notify(edit.reason, severity="warning")
+            return
+        self._apply_edit(edit)
 
     @work(thread=True, exclusive=True, exit_on_error=False, group="relation_paths")
     def resolve_and_insert_path(
-        self, qualified_identifier: str, database: str | None
+        self, qualified_identifier: str, database: str | None, statement: str
     ) -> None:
-        """Turn an identifier from the Relations panel into text for the editor.
-
-        The panel knows identifiers, `path_for` needs catalog items, and the
-        catalog loads lazily -- so the item may not exist yet. Finding it can
-        query the database, which is why this runs off the event loop.
-        """
-        found = self._find_catalog_item(qualified_identifier, database)
-        if found is None:
+        """Resolve off the event loop: finding the item may query the database."""
+        text = self.relations.path_text(qualified_identifier, database, statement)
+        if text is None:
             self.notify(
                 f"{qualified_identifier} is not in the catalog.", severity="warning"
             )
             return
-        item, owner = found
-        text = path_for(
-            item=item,
-            owner=owner,
-            scope=read_scope(self._scope_text()),
-            reserved=self.reserved_words,
-        )
         self.post_message(HarlequinDriver.InsertTextAtSelection(text=text))
 
-    def _find_catalog_item(
-        self, qualified_identifier: str, database: str | None
-    ) -> tuple[CatalogItem, CatalogItem | None] | None:
-        """Locate an item and its owner, fetching only what the search needs.
-
-        Relations are searched first, without touching their columns; a column
-        is then looked up inside the one relation that could hold it. Fetching
-        every relation's columns to find one would cost a query per table.
-        """
-        if self.catalog is None:
-            return None
-
-        for database_item in self.catalog.items:
-            if database is not None and database_item.label != database:
-                continue
-            for schema in self._children_of(database_item):
-                for relation in self._children_of(schema):
-                    if relation.qualified_identifier == qualified_identifier:
-                        return relation, schema
-                    if not qualified_identifier.startswith(
-                        f"{relation.qualified_identifier}."
-                    ):
-                        continue
-                    for column in self._children_of(relation):
-                        if column.qualified_identifier == qualified_identifier:
-                            return column, relation
-        return None
-
-    def _children_of(self, item: CatalogItem) -> Sequence[CatalogItem]:
-        """An item's children, fetched and kept on it the way the tree keeps them."""
-        if item.children or not isinstance(item, InteractiveCatalogItem):
-            return item.children
-        if not item.loaded:
-            item.children = list(item.fetch_children())
-            item.loaded = True
-            self.post_message(NewCatalogItems(parent=item, items=item.children))
-        return item.children
-
     @on(HarlequinTree.NodeHighlighted)
-    def show_relations_for_node(
+    def inspect_catalog_node(
         self, message: HarlequinTree.NodeHighlighted[CatalogItem]
     ) -> None:
-        # The panel is a Tree too, and Tree.NodeHighlighted is the same message
-        # class for every tree in the app -- including the panel's own cursor
-        # moves, which would otherwise make it redraw itself into emptiness.
+        # the filtered tree highlights too; the panel follows only the real one
         if message.control is not self.data_catalog.database_tree:
             return
         item = message.node.data
-        self.relations_panel.show(
-            item.qualified_identifier if isinstance(item, CatalogItem) else None,
-            _database_of(message.node),
+        focus = (
+            self.relations.focus_on(item.qualified_identifier)
+            if isinstance(item, CatalogItem)
+            else None
         )
+        self.inspector.show(focus, _database_of(message.node))
 
     @work(thread=True, exclusive=True, exit_on_error=False, group="schema_updaters")
     def update_schema_data(self) -> None:

@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 from harlequin.catalog import CatalogItem
-from harlequin.references import (
-    DEFAULT_RESERVED,
-    BufferScope,
-    RelationRef,
-    path_for,
-    read_scope,
-)
+from harlequin.relations.scope import BufferScope, RelationRef, read_scope
+from harlequin.relations.spelling import DEFAULT_RESERVED, path_for
 
 
 def test_read_scope_finds_aliases_and_bare_relations() -> None:
@@ -23,7 +18,9 @@ def test_read_scope_finds_aliases_and_bare_relations() -> None:
     scope = read_scope(sql)
 
     assert scope.relations == (
-        RelationRef(name="sales.salesorderheader", alias=None, is_cte=False),
+        RelationRef(
+            name="sales.salesorderheader", alias=None, is_cte=False, top_level=False
+        ),
         RelationRef(name="recent", alias="r", is_cte=True),
         RelationRef(name="sales.customer", alias="c", is_cte=False),
         RelationRef(name="person.person", alias="p", is_cte=False),
@@ -40,9 +37,7 @@ def test_read_scope_survives_a_broken_buffer() -> None:
     assert (
         RelationRef(name="sales.customer", alias="c", is_cte=False) in scope.relations
     )
-    assert (
-        RelationRef(name="person.person", alias="p", is_cte=False) in scope.relations
-    )
+    assert RelationRef(name="person.person", alias="p", is_cte=False) in scope.relations
 
 
 def test_read_scope_of_empty_text_is_empty() -> None:
@@ -74,9 +69,7 @@ def test_alias_for_ignores_a_relation_without_an_alias() -> None:
 
 
 def test_alias_for_ignores_a_cte_of_the_same_name() -> None:
-    scope = read_scope(
-        "with customer as (select 1) select 1 from customer c"
-    )
+    scope = read_scope("with customer as (select 1) select 1 from customer c")
 
     assert scope.alias_for('"retail_training"."sales"."customer"') is None
 

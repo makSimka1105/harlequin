@@ -15,7 +15,7 @@ from harlequin.app import (
     ResultsFetched,
 )
 from harlequin.components import ErrorModal
-from harlequin.references import DEFAULT_RESERVED
+from harlequin.relations.spelling import DEFAULT_RESERVED
 from tests.functional_tests.helpers import (
     wait_for_any_table,
     wait_for_editor,

@@ -79,6 +79,27 @@ class ForeignKeyEdge:
     database: str | None = None
     """The label of the top-level catalog item the key lives under, for adapters
     whose identifiers leave the database out. None matches every database."""
+    nullable: bool = False
+    """Whether a referencing column may hold null."""
+
+
+@dataclass(frozen=True)
+class ColumnDetails:
+    """What the schema says about one column, spelled like the catalog."""
+
+    relation: str
+    name: str
+    position: int
+    type_name: str
+    nullable: bool
+    default: str | None
+    primary_key: bool
+    unique: bool
+    """A unique constraint or index on this column alone."""
+    indexed: bool
+    """The leading column of some index; later columns get no help from it."""
+    comment: str | None
+    database: str | None = None
 
 
 @dataclass

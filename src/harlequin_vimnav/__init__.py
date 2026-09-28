@@ -40,6 +40,7 @@ VIMNAV_APP_BINDINGS = [
 VIMNAV_EDITOR_BINDINGS = [
     HarlequinKeyBinding("ctrl+r", "code_editor.focus_results_viewer"),
     HarlequinKeyBinding("ctrl+d", "code_editor.focus_data_catalog"),
+    HarlequinKeyBinding("ctrl+l", "code_editor.show_join_picker"),
 ]
 
 VIMNAV_DATA_CATALOG_BINDINGS = [

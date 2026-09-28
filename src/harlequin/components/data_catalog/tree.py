@@ -115,6 +115,13 @@ class HarlequinTree(Tree[TTreeNode], inherit_bindings=False):
                 if node is not None:
                     self.post_message(self.NodeSubmitted(node=node))
                     node.expand()
+            elif click_line is not None and not meta.get("toggle", False):
+                # textual answers a click with select_cursor, which on a column
+                # is enter's insert; a single click should only move the cursor.
+                node = self.get_node_at_line(click_line)
+                if node is not None and not node.allow_expand:
+                    event.prevent_default()
+                    self.cursor_line = click_line
         elif event.button == 3 and click_line is not None:  # right click
             node = self.get_node_at_line(click_line)
             if node is not None and isinstance(node.data, CatalogItem):

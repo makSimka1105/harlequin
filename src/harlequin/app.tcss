@@ -38,7 +38,7 @@ HistoryScreen QueryPreview:focus-within {
 CodeEditor:disabled,
 Container:disabled,
 DataCatalog:disabled,
-RelationsPanel:disabled,
+InspectorPanel:disabled,
 EditorCollection:disabled,
 ResultsViewer:disabled,
 ResultsTable:disabled,
@@ -157,6 +157,27 @@ EditorCollection.premount {
 CodeEditor {
     height: 1fr;
     width: 100%;
+}
+/* A transparent theme runs the app in ansi mode. There TextArea draws the
+cursor and selection with `reverse`, which flips the theme colours into a
+dark-on-dark block, and blends the cursor line's white 4% onto ansi_default,
+which Textual treats as black. */
+CodeEditor TextAreaPlus:ansi .text-area--cursor {
+    color: $input-cursor-foreground;
+    background: $input-cursor-background;
+    text-style: none;
+}
+CodeEditor TextAreaPlus:ansi .text-area--selection {
+    color: $input-selection-foreground;
+    background: $input-selection-background;
+    text-style: none;
+}
+CodeEditor TextAreaPlus:ansi .text-area--cursor-line {
+    background: transparent;
+}
+CodeEditor TextAreaPlus:ansi .text-area--cursor-gutter {
+    background: transparent;
+    color: $primary;
 }
 
 CompletionList {
@@ -707,17 +728,31 @@ ConfirmModal Horizontal#button_row Button#no{
     width: 1fr;
 }
 
-/* The panel is a reference, not a workspace: it gets a fixed slice of the
-   column so the catalog above it does not shrink as its contents change. */
-RelationsPanel {
-    height: 12;
+InspectorPanel {
+    height: 20;
     background: $background;
     padding: 0 1;
     border: round $border-color-nofocus;
-    &:focus {
+    &:focus-within {
         border: round $border-color-focus;
-        background-tint: $background;
     }
+}
+
+InspectorPanel #inspector_title {
+    height: 1;
+}
+
+InspectorPanel #inspector_rows {
+    height: 1fr;
+    border: none;
+    padding: 0;
+    background: $background;
+}
+
+InspectorPanel #inspector_detail {
+    height: auto;
+    max-height: 6;
+    border-top: solid $panel;
 }
 
 /* The filter box and its results only exist while filtering; the real tree is
@@ -759,4 +794,63 @@ DataCatalog.filtering #catalog_filter_status {
     padding: 0 1;
     color: $foreground-muted;
     background: $background;
+}
+
+JoinPicker {
+    align: center middle;
+}
+
+#join_picker {
+    width: 64;
+    height: auto;
+    max-height: 26;
+    padding: 0 1;
+    background: $background;
+    border: round $border-color-focus;
+}
+
+#join_picker Input {
+    border: none;
+    height: 1;
+}
+
+#join_candidates {
+    height: auto;
+    max-height: 14;
+    border: none;
+    background: $background;
+}
+
+#join_preview {
+    height: auto;
+    border-top: solid $panel;
+}
+
+#join_aliases {
+    height: auto;
+}
+
+.alias_row {
+    height: 1;
+}
+
+.alias_marker {
+    width: 2;
+    visibility: hidden;
+}
+
+.alias_row.-current .alias_marker {
+    visibility: visible;
+}
+
+.alias_table {
+    width: 22;
+}
+
+#join_aliases Input {
+    width: 1fr;
+}
+
+#join_aliases Input.-invalid {
+    color: $error;
 }

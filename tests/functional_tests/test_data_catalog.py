@@ -219,6 +219,49 @@ async def test_double_click_inserts_node_into_editor(
 
 
 @pytest.mark.asyncio
+async def test_single_click_on_a_column_only_moves_the_cursor(
+    app_multi_duck: Harlequin,
+    wait_for_workers: Callable[[Harlequin], Awaitable[None]],
+) -> None:
+    app = app_multi_duck
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_for_workers(app)
+        editor = await wait_for_editor(pilot, app)
+        await wait_for_catalog_tree(pilot, app)
+
+        tree = app.data_catalog.database_tree
+        table = tree.root.add(
+            "customer",
+            data=CatalogItem(
+                qualified_identifier='"tiny"."main"."customer"',
+                query_name='"main"."customer"',
+                label="customer",
+                type_label="t",
+            ),
+            expand=True,
+        )
+        column = table.add_leaf(
+            "customerid",
+            data=CatalogItem(
+                qualified_identifier='"tiny"."main"."customer"."customerid"',
+                query_name='"customerid"',
+                label="customerid",
+                type_label="##",
+            ),
+        )
+        await pilot.pause()
+        tree.scroll_to_node(column, animate=False)
+        await pilot.pause()
+
+        line_on_screen = column.line - int(tree.scroll_offset.y)
+        await pilot.click(tree, offset=Offset(x=8, y=line_on_screen))
+        await pilot.pause()
+
+        assert tree.cursor_node is column
+        assert editor.text == ""
+
+
+@pytest.mark.asyncio
 async def test_inserting_a_column_uses_its_alias(
     app_multi_duck: Harlequin,
     wait_for_workers: Callable[[Harlequin], Awaitable[None]],
@@ -324,16 +367,16 @@ async def test_inserting_a_bare_name_ambiguous_in_the_catalog_uses_the_full_path
         await wait_for_catalog_tree(pilot, app)
 
         tree = app.data_catalog.database_tree
+        assert app.catalog is not None
         for schema in ("sales", "archive"):
-            table = tree.root.add(
-                f"{schema}-customer",
-                data=CatalogItem(
-                    qualified_identifier=f'"tiny"."{schema}"."customer"',
-                    query_name=f'"{schema}"."customer"',
-                    label="customer",
-                    type_label="t",
-                ),
+            customer = CatalogItem(
+                qualified_identifier=f'"tiny"."{schema}"."customer"',
+                query_name=f'"{schema}"."customer"',
+                label="customer",
+                type_label="t",
             )
+            app.catalog.items.append(customer)
+            table = tree.root.add(f"{schema}-customer", data=customer)
             if schema == "archive":
                 archive_column = table.add_leaf(
                     "id",
@@ -380,7 +423,7 @@ async def test_adapter_reserved_words_are_casefolded_before_matching(
         await wait_for_workers(app)
         await pilot.pause()
 
-        assert "zzforkkeyword" in app.reserved_words
+        assert "zzforkkeyword" in app.relations.reserved
 
 
 @pytest.mark.asyncio
