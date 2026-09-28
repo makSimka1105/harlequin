@@ -273,3 +273,45 @@ def test_an_unusable_choice_is_refused_at_its_slot(
     aliases: tuple[str, ...], refusal: JoinRefusal
 ) -> None:
     assert plan("select * from shop.customer c", CHAIN, aliases) == refusal
+
+
+def test_joins_after_a_left_join_stay_left() -> None:
+    graph = RelationGraph(
+        [
+            edge("orders", ("customerid",), "customer", ("customerid",), nullable=True),
+            edge("customer", ("regionid",), "region", ("regionid",)),
+        ]
+    )
+    [to_customer] = graph.links_for(rel("orders"))
+    [to_region] = [
+        link for link in graph.links_for(rel("customer")) if link.direction == "out"
+    ]
+    result = plan_joins(
+        Route((to_customer, to_region)),
+        read_scope("select * from shop.orders o"),
+        DEFAULT_RESERVED,
+    )
+    assert isinstance(result, JoinPlan)
+    assert result.text == (
+        "\nleft join shop.customer c on c.customerid = o.customerid"
+        "\nleft join shop.region r on r.regionid = c.regionid"
+    )
+
+
+def test_a_table_already_in_the_query_ends_the_left_chain() -> None:
+    graph = RelationGraph(
+        [
+            edge("orders", ("customerid",), "customer", ("customerid",), nullable=True),
+            edge("customer", ("regionid",), "region", ("regionid",)),
+        ]
+    )
+    [to_customer] = graph.links_for(rel("orders"))
+    [to_region] = [
+        link for link in graph.links_for(rel("customer")) if link.direction == "out"
+    ]
+    sql = "select * from shop.orders o join shop.customer cu on true"
+    result = plan_joins(
+        Route((to_customer, to_region)), read_scope(sql), DEFAULT_RESERVED
+    )
+    assert isinstance(result, JoinPlan)
+    assert result.text == "\njoin shop.region r on r.regionid = cu.regionid"

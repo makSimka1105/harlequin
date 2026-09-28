@@ -100,6 +100,8 @@ def _plan(
         lines.append(f"from {spell_relation(route.source, reserved)} {current}")
 
     joined = False
+    # an inner join on a null-extended row drops it, undoing the left join
+    left = False
     for link in route.steps:
         # with two keys between the tables the present join may use the other one
         rejoin = link.far_relation == link.near_relation or (
@@ -108,9 +110,11 @@ def _plan(
         present = None if rejoin else scope.reference_for(link.far_relation, known)
         if present is not None:
             current = present
+            left = False
             continue
         alias = claim(link.far_relation)
-        lines.append(_join_line(link, alias, current, reserved))
+        left = left or link.nullable
+        lines.append(_join_line(link, alias, current, reserved, left))
         current = alias
         joined = True
 
@@ -141,8 +145,10 @@ def new_alias(
     return alias
 
 
-def _join_line(link: Link, alias: str, known: str, reserved: frozenset[str]) -> str:
-    kind = "left join" if link.nullable else "join"
+def _join_line(
+    link: Link, alias: str, known: str, reserved: frozenset[str], left: bool
+) -> str:
+    kind = "left join" if left else "join"
     condition = " and ".join(
         f"{alias}.{spell_segment(far, reserved)} = "
         f"{known}.{spell_segment(near, reserved)}"
