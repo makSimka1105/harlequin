@@ -1,3 +1,51 @@
+# Harlequin, relations fork
+
+A fork of [Harlequin](https://github.com/tconbeer/harlequin), the SQL IDE for the terminal, built
+for writing joins against real PostgreSQL schemas without keeping the schema in your head or
+switching to `psql`. Based on upstream `v2.15.0`, branch `relations`.
+
+## What the fork adds
+
+- **Join picker** (`ctrl+l` in the editor). Builds a graph of foreign keys and lists every table
+  the current statement can reach, including multi-step routes, with a preview of the generated
+  `JOIN ... ON ...` lines. Aliases can be renamed in place before inserting; taken or reserved
+  aliases are flagged. Once a route passes through a left join, the following joins stay left so
+  null-extended rows are not dropped.
+- **Inspector panel.** Follows both the Data Catalog cursor and the editor cursor (through
+  aliases) and shows the table's columns with type, PK / FK / UQ marks and nullability, plus
+  what the table references and what references it. `enter` inserts the column or table path.
+- **Alias-aware paths.** Inserting from the catalog writes a usable path such as `c.customerid`
+  instead of a bare quoted name. Aliases are read from the buffer with tree-sitter, scoped to the
+  statement under the cursor, and quoting follows the database's own spelling rules.
+- **Catalog filter** (`/`). Server-side search over the whole database through the adapter's
+  catalog search, not only over already loaded nodes.
+- **`vimnav` keymap.** `hjkl` in the catalog and results, `J` / `K` to jump between schemas and
+  tables, `[` / `]` for tabs, `ctrl+e` / `ctrl+d` / `ctrl+r` / `ctrl+i` to switch between editor,
+  catalog, results and inspector.
+- **`pgfk` adapter.** A thin subclass of the Postgres adapter that also reads foreign keys and
+  column details from `pg_constraint` and the catalog, so the relation graph uses the same quoting
+  as the catalog.
+
+```
+src/harlequin/relations/     FK graph, route search, join planning, scope and alias resolution
+src/harlequin/components/    inspector_panel.py, join_picker.py, filtered catalog tree
+src/harlequin_pgfk/          adapter plugin (entry point "pgfk")
+src/harlequin_vimnav/        keymap plugin (entry point "vimnav")
+```
+
+## Try it
+
+```bash
+uv tool install "harlequin[postgres] @ git+https://github.com/makSimka1105/harlequin@relations"
+harlequin --adapter pgfk --keymap-name vimnav "postgresql://user:pass@localhost:5432/db"
+```
+
+Python, Textual, tree-sitter, psycopg. Tests for the relations package live in `tests/unit_tests/test_relations_*.py`.
+
+---
+
+The original Harlequin README follows.
+
 # Harlequin
 
 [![PyPI](https://img.shields.io/pypi/v/harlequin)](https://pypi.org/project/harlequin/)
